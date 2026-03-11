@@ -4,7 +4,7 @@ build:
 	go build -o cosma-dev ./cmd/cosma-dev
 
 run:
-	./cosma-dev
+	make build && ./cosma-dev
 
 unit-tests:
 	go test ./...
