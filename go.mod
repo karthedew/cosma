@@ -2,19 +2,17 @@ module github.com/karthedew/cosma
 
 go 1.25.2
 
-require github.com/apache/arrow-go/v18 v18.5.1
+require github.com/apache/arrow/go/v18 v18.0.0-20241007013041-ab95a4d25142
 
 require (
-	github.com/apache/arrow/go/v14 v14.0.2 // indirect
-	github.com/goccy/go-json v0.10.5 // indirect
-	github.com/google/flatbuffers v25.12.19+incompatible // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/goccy/go-json v0.10.3 // indirect
+	github.com/google/flatbuffers v24.3.25+incompatible // indirect
+	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
-	golang.org/x/exp v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
-	golang.org/x/mod v0.32.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260109210033-bd525da824e2 // indirect
-	golang.org/x/tools v0.41.0 // indirect
-	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
+	golang.org/x/exp v0.0.0-20240222234643-814bf88cf225 // indirect
+	golang.org/x/mod v0.20.0 // indirect
+	golang.org/x/sync v0.8.0 // indirect
+	golang.org/x/sys v0.23.0 // indirect
+	golang.org/x/tools v0.24.0 // indirect
+	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 )

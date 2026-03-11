@@ -3,180 +3,202 @@ package dataframe
 import (
 	"fmt"
 
-	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow"
+
+	"github.com/karthedew/cosma/schema"
 )
 
-// ColumnAppender owns mutable, in-flight builder state.
-type ColumnAppender interface {
-	Append(value any) error
-	AppendNull()
-	ShouldFlush() bool
-	PendingLen() int
-	Flush() (arr arrow.Array, ok bool)
-	Release()
-}
-
-// Column is a logical Arrow column with immutable historical chunks and one mutable appender.
-type Column struct {
-	name     string
-	dtype    arrow.DataType
-	chunks   []arrow.Array
-	chunked  *arrow.Chunked
-	appender ColumnAppender
-}
-
-func NewInt64Column(name string, chunkSize int) *Column {
-	dtype := arrow.PrimitiveTypes.Int64
-	return &Column{
-		name:     name,
-		dtype:    dtype,
-		chunks:   make([]arrow.Array, 0),
-		chunked:  arrow.NewChunked(dtype, nil),
-		appender: NewInt64Appender(chunkSize),
-	}
-}
-
-func (c *Column) Name() string {
-	return c.name
-}
-
-func (c *Column) DataType() arrow.DataType {
-	return c.dtype
-}
-
-func (c *Column) Chunked() *arrow.Chunked {
-	return c.chunked
-}
-
-func (c *Column) Append(value any) error {
-	if err := c.appender.Append(value); err != nil {
-		return err
-	}
-	if c.appender.ShouldFlush() {
-		c.Flush()
-	}
-	return nil
-}
-
-func (c *Column) AppendNull() {
-	c.appender.AppendNull()
-	if c.appender.ShouldFlush() {
-		c.Flush()
-	}
-}
-
-// Flush seals the current builder into an immutable Arrow array.
-// It is safe to call when no pending values exist.
-func (c *Column) Flush() {
-	arr, ok := c.appender.Flush()
-	if !ok {
-		return
-	}
-
-	c.chunks = append(c.chunks, arr)
-	if c.chunked != nil {
-		c.chunked.Release()
-	}
-	c.chunked = arrow.NewChunked(c.dtype, c.chunks)
-}
-
-// Release decrements references held by the column and its appender.
-func (c *Column) Release() {
-	if c.appender != nil {
-		c.appender.Release()
-	}
-	for _, chunk := range c.chunks {
-		chunk.Release()
-	}
-	c.chunks = nil
-	if c.chunked != nil {
-		c.chunked.Release()
-		c.chunked = nil
-	}
-}
-
 type DataFrame struct {
-	schema  *arrow.Schema
-	columns []*Column
-	index   map[string]int
+	schema *schema.Schema
+	cols   []Series
+	height int64
 }
 
-type Column struct {
-	Name		string
-	DType		arrow.DataType
-	Builder		arrow.Builder
-	ChunkSize	int
-	Chunks		[]arrow.Array
-}
+func New(series []*Series) (*DataFrame, error) {
+	fields := make([]schema.Field, len(series))
+	cols := make([]Series, len(series))
+	nameIndex := make(map[string]struct{}, len(series))
+	var h int64 = -1
 
-func New(schema *arrow.Schema, chunkSize int) (*DataFrame, error) {
-	cols := make([]*Column, 0, len(schema.Fields()))
-	idx := make(map[string]int, len(schema.Fields()))
+	for i, s := range series {
+		if s == nil {
+			return nil, fmt.Errorf("series %d is nil", i)
+		}
+		if s.Name() == "" {
+			return nil, fmt.Errorf("series %d name is empty", i)
+		}
+		if _, ok := nameIndex[s.Name()]; ok {
+			return nil, fmt.Errorf("duplicate series name %q", s.Name())
+		}
+		nameIndex[s.Name()] = struct{}{}
 
-	for i, f := range schema.Fields() {
-		if _, exists := idx[f.Name]; exists {
-			return nil, fmt.Errorf("duplicate field name: %s", f.Name)
+		field, err := schemaFieldFromArrow(s.Name(), s.DataType())
+		if err != nil {
+			return nil, fmt.Errorf("series %q dtype: %w", s.Name(), err)
 		}
 
-		var col *Column
-		switch f.Type.ID() {
-		case arrow.INT64:
-			col = NewInt64Column(f.Name, chunkSize)
-		default:
-			return nil, fmt.Errorf("unsupported type for field %q: %s", f.Name, f.Type)
-		}
+		fields[i] = field
+		cols[i] = *s
 
-		cols = append(cols, col)
-		idx[f.Name] = i
-	}
-
-	return &DataFrame{schema: schema, columns: cols, index: idx}, nil
-}
-
-func (df *DataFrame) Schema() *arrow.Schema {
-	return df.schema
-}
-
-func (df *DataFrame) Columns() []*Column {
-	return df.columns
-}
-
-func (df *DataFrame) AppendRow(values ...any) error {
-	if len(values) != len(df.columns) {
-		return fmt.Errorf("append row: got %d values, expected %d", len(values), len(df.columns))
-	}
-
-	for i, v := range values {
-		if v == nil {
-			df.columns[i].AppendNull()
-			continue
-		}
-		if err := df.columns[i].Append(v); err != nil {
-			return fmt.Errorf("column %q: %w", df.columns[i].Name(), err)
+		colLen := int64(s.Len())
+		if h == -1 {
+			h = colLen
+		} else if colLen != h {
+			return nil, fmt.Errorf("series %q len=%d != height=%d", s.Name(), colLen, h)
 		}
 	}
-	return nil
+
+	s := schema.New(fields...)
+	return NewDataFrame(s, cols)
 }
 
-func (df *DataFrame) AppendInt64(colName string, v int64) error {
-	i, ok := df.index[colName]
-	if !ok {
-		return fmt.Errorf("unknown column %q", colName)
+func NewDataFrame(s *schema.Schema, cols []Series) (*DataFrame, error) {
+	if s == nil {
+		return nil, fmt.Errorf("schema is nil")
 	}
-	if df.columns[i].DataType().ID() != arrow.INT64 {
-		return fmt.Errorf("column %q is %s, not int64", colName, df.columns[i].DataType())
+	if len(cols) != s.Len() {
+		return nil, fmt.Errorf("cols (%d) != schema fields (%d)", len(cols), s.Len())
 	}
-	return df.columns[i].Append(v)
+
+	fields := s.Fields()
+	var h int64 = -1
+	for i, f := range fields {
+		// Height check
+		colLen := int64(cols[i].Len())
+		if h == -1 {
+			h = colLen
+		} else if colLen != h {
+			return nil, fmt.Errorf("column %q len=%d != height=%d", f.Name, colLen, h)
+		}
+	}
+
+	if h < 0 {
+		h = 0
+	}
+
+	return &DataFrame{
+		schema: s,
+		cols:   cols,
+		height: h,
+	}, nil
 }
 
-func (df *DataFrame) Flush() {
-	for _, c := range df.columns {
-		c.Flush()
+func (df *DataFrame) Schema() *schema.Schema { return df.schema }
+func (df *DataFrame) Height() int64          { return df.height }
+func (df *DataFrame) Width() int             { return len(df.cols) }
+
+func (df *DataFrame) Column(name string) (Series, bool) {
+	for _, col := range df.cols {
+		if col.Name() == name {
+			return col, true
+		}
 	}
+	return Series{}, false
 }
 
-func (df *DataFrame) Release() {
-	for _, c := range df.columns {
-		c.Release()
+func schemaFieldFromArrow(name string, dt arrow.DataType) (schema.Field, error) {
+	if dt == nil {
+		return schema.Field{}, fmt.Errorf("nil arrow type")
+	}
+	key, err := schemaDTypeFromArrow(dt)
+	if err != nil {
+		return schema.Field{}, err
+	}
+	return schema.Field{Name: name, Type: key, Nullable: false, ArrowType: dt}, nil
+}
+
+func schemaDTypeFromArrow(dt arrow.DataType) (schema.DType, error) {
+	if dt == nil {
+		return "", fmt.Errorf("nil arrow type")
+	}
+	switch dt.ID() {
+	case arrow.NULL:
+		return schema.Null, nil
+	case arrow.BOOL:
+		return schema.Bool, nil
+	case arrow.INT8:
+		return schema.Int8, nil
+	case arrow.INT16:
+		return schema.Int16, nil
+	case arrow.INT32:
+		return schema.Int32, nil
+	case arrow.INT64:
+		return schema.Int64, nil
+	case arrow.UINT8:
+		return schema.UInt8, nil
+	case arrow.UINT16:
+		return schema.UInt16, nil
+	case arrow.UINT32:
+		return schema.UInt32, nil
+	case arrow.UINT64:
+		return schema.UInt64, nil
+	case arrow.FLOAT16:
+		return schema.Float16, nil
+	case arrow.FLOAT32:
+		return schema.Float32, nil
+	case arrow.FLOAT64:
+		return schema.Float64, nil
+	case arrow.STRING:
+		return schema.Utf8, nil
+	case arrow.LARGE_STRING:
+		return schema.LargeUtf8, nil
+	case arrow.STRING_VIEW:
+		return schema.StringView, nil
+	case arrow.BINARY:
+		return schema.Binary, nil
+	case arrow.LARGE_BINARY:
+		return schema.LargeBinary, nil
+	case arrow.FIXED_SIZE_BINARY:
+		return schema.FixedSizeBinary, nil
+	case arrow.BINARY_VIEW:
+		return schema.BinaryView, nil
+	case arrow.DATE32:
+		return schema.Date32, nil
+	case arrow.DATE64:
+		return schema.Date64, nil
+	case arrow.TIME32:
+		return schema.Time32, nil
+	case arrow.TIME64:
+		return schema.Time64, nil
+	case arrow.TIMESTAMP:
+		return schema.Timestamp, nil
+	case arrow.DURATION:
+		return schema.Duration, nil
+	case arrow.INTERVAL_MONTHS:
+		return schema.IntervalMonth, nil
+	case arrow.INTERVAL_DAY_TIME:
+		return schema.IntervalDayTime, nil
+	case arrow.INTERVAL_MONTH_DAY_NANO:
+		return schema.IntervalMDN, nil
+	case arrow.DECIMAL128:
+		return schema.Decimal128, nil
+	case arrow.DECIMAL256:
+		return schema.Decimal256, nil
+	case arrow.LIST:
+		return schema.List, nil
+	case arrow.LARGE_LIST:
+		return schema.LargeList, nil
+	case arrow.FIXED_SIZE_LIST:
+		return schema.FixedSizeList, nil
+	case arrow.LIST_VIEW:
+		return schema.ListView, nil
+	case arrow.LARGE_LIST_VIEW:
+		return schema.LargeListView, nil
+	case arrow.STRUCT:
+		return schema.Struct, nil
+	case arrow.MAP:
+		return schema.Map, nil
+	case arrow.SPARSE_UNION:
+		return schema.SparseUnion, nil
+	case arrow.DENSE_UNION:
+		return schema.DenseUnion, nil
+	case arrow.DICTIONARY:
+		return schema.Dictionary, nil
+	case arrow.RUN_END_ENCODED:
+		return schema.RunEndEncoded, nil
+	case arrow.EXTENSION:
+		return schema.Extension, nil
+	default:
+		return "", fmt.Errorf("unsupported arrow type %q", dt.Name())
 	}
 }

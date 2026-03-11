@@ -1,0 +1,52 @@
+package schema
+
+// DType is Cosma’s logical type enum.
+// Keep it small at first; you can map it to Arrow types later.
+type DType string
+
+const (
+	Null            DType = "null"
+	Bool            DType = "bool"
+	Int8            DType = "int8"
+	Int16           DType = "int16"
+	Int32           DType = "int32"
+	Int64           DType = "int64"
+	UInt8           DType = "uint8"
+	UInt16          DType = "uint16"
+	UInt32          DType = "uint32"
+	UInt64          DType = "uint64"
+	Float16         DType = "float16"
+	Float32         DType = "float32"
+	Float64         DType = "float64"
+	Utf8            DType = "utf8"
+	String          DType = Utf8
+	LargeUtf8       DType = "large_utf8"
+	Binary          DType = "binary"
+	LargeBinary     DType = "large_binary"
+	FixedSizeBinary DType = "fixed_size_binary"
+	Date32          DType = "date32"
+	Date64          DType = "date64"
+	Time32          DType = "time32"
+	Time64          DType = "time64"
+	Timestamp       DType = "timestamp"
+	Duration        DType = "duration"
+	IntervalMonth   DType = "interval_month"
+	IntervalDayTime DType = "interval_day_time"
+	IntervalMDN     DType = "interval_month_day_nano"
+	List            DType = "list"
+	LargeList       DType = "large_list"
+	FixedSizeList   DType = "fixed_size_list"
+	ListView        DType = "list_view"
+	LargeListView   DType = "large_list_view"
+	Struct          DType = "struct"
+	Map             DType = "map"
+	SparseUnion     DType = "sparse_union"
+	DenseUnion      DType = "dense_union"
+	Dictionary      DType = "dictionary"
+	Decimal128      DType = "decimal128"
+	Decimal256      DType = "decimal256"
+	RunEndEncoded   DType = "run_end_encoded"
+	Extension       DType = "extension"
+	StringView      DType = "string_view"
+	BinaryView      DType = "binary_view"
+)

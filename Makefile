@@ -5,3 +5,9 @@ build:
 
 run:
 	./cosma-dev
+
+unit-tests:
+	go test ./...
+
+lint:
+	golangci-lint run
