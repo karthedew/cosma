@@ -22,8 +22,23 @@ func TestRecordBatchIterErrors(t *testing.T) {
 	}
 
 	rec, ok, err := it.Next()
-	if err == nil {
-		t.Fatalf("expected not implemented error")
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	if rec == nil {
+		t.Fatalf("expected record")
+	}
+	if rec.NumRows() != 2 {
+		t.Fatalf("expected 2 rows, got %d", rec.NumRows())
+	}
+	rec.Release()
+
+	rec, ok, err = it.Next()
+	if err != nil {
+		t.Fatalf("Next: %v", err)
 	}
 	if ok {
 		t.Fatalf("expected ok=false")

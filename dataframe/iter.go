@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 )
 
 // RecordBatchIter yields Arrow Records (RecordBatches) from a DataFrame.
@@ -12,14 +13,26 @@ type RecordBatchIter struct {
 	df        *DataFrame
 	chunkIdx  int
 	maxChunks int
+	schema    *arrow.Schema
 }
 
 func NewRecordBatchIter(df *DataFrame) (*RecordBatchIter, error) {
+	return NewRecordBatchIterWithSchema(df, nil)
+}
+
+func NewRecordBatchIterWithSchema(df *DataFrame, arrSchema *arrow.Schema) (*RecordBatchIter, error) {
 	// Minimal stub: assumes all series columns have the same number of chunks
 	// and ignores scalar columns.
 	// TODO: support scalars (materialize) and misaligned chunks (slice by row range).
 	if df == nil {
 		return nil, fmt.Errorf("df is nil")
+	}
+	if arrSchema == nil {
+		var err error
+		arrSchema, err = arrowSchemaFromSchema(df.schema)
+		if err != nil {
+			return nil, fmt.Errorf("arrow schema: %w", err)
+		}
 	}
 
 	// Find max chunks across series
@@ -32,7 +45,7 @@ func NewRecordBatchIter(df *DataFrame) (*RecordBatchIter, error) {
 			}
 		}
 	}
-	return &RecordBatchIter{df: df, chunkIdx: 0, maxChunks: max}, nil
+	return &RecordBatchIter{df: df, chunkIdx: 0, maxChunks: max, schema: arrSchema}, nil
 }
 
 func (it *RecordBatchIter) Next() (arrow.Record, bool, error) {
@@ -42,6 +55,7 @@ func (it *RecordBatchIter) Next() (arrow.Record, bool, error) {
 
 	fields := it.df.schema.Fields()
 	arrs := make([]arrow.Array, len(fields))
+	var rows int64 = -1
 
 	for i := range fields {
 		col := it.df.cols[i]
@@ -54,16 +68,23 @@ func (it *RecordBatchIter) Next() (arrow.Record, bool, error) {
 
 		chunks := chunked.Chunks()
 		if it.chunkIdx >= len(chunks) {
-			// TODO: handle uneven chunk counts
-			arrs[i] = chunks[len(chunks)-1]
-		} else {
-			arrs[i] = chunks[it.chunkIdx]
+			return nil, false, fmt.Errorf("column %q has fewer chunks (%d) than expected (%d)", fields[i].Name, len(chunks), it.maxChunks)
+		}
+		arrs[i] = chunks[it.chunkIdx]
+		if arrs[i] == nil {
+			return nil, false, fmt.Errorf("column %q chunk %d is nil", fields[i].Name, it.chunkIdx)
+		}
+		if rows == -1 {
+			rows = int64(arrs[i].Len())
+		} else if int64(arrs[i].Len()) != rows {
+			return nil, false, fmt.Errorf("column %q chunk %d len=%d != %d", fields[i].Name, it.chunkIdx, arrs[i].Len(), rows)
 		}
 	}
 
-	// TODO: build a real arrow.Schema from df.schema (Cosma schema) + Arrow dtypes.
-	// For now, use a placeholder Arrow schema with unknown types would not work.
-	// Return "not implemented" to avoid emitting invalid records.
 	it.chunkIdx++
-	return nil, false, fmt.Errorf("RecordBatchIter.Next not implemented: need Arrow schema construction + scalar handling")
+	if rows < 0 {
+		rows = 0
+	}
+	rec := array.NewRecord(it.schema, arrs, rows)
+	return rec, true, nil
 }

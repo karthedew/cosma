@@ -94,6 +94,27 @@ flowchart TD
     I --> J
 ```
 
+## IO Flow (CSV/Parquet)
+
+```mermaid
+flowchart TD
+    A[Read CSV/Parquet] --> B[Arrow Reader]
+    B --> C[arrow.Record batches]
+    C --> D[FromRecordBatches]
+    D --> E[DataFrame + Series]
+
+    F[DataFrame] --> G[RecordBatchIter]
+    G --> H[arrow.Record batches]
+    H --> I[Arrow Writer]
+    I --> J[Write CSV/Parquet]
+```
+
+### Notes
+
+- CSV reads default to header-based column names; missing values become nulls.
+- Parquet reads preserve Arrow chunking and nulls, then map into Series.
+- Writes emit Arrow records from `RecordBatchIter` and allow nullable schemas.
+
 ## Design Notes
 
 - `ColumnAppender` owns temporary mutable Arrow builders.

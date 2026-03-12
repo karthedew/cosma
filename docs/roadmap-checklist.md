@@ -41,6 +41,13 @@ Use this as the execution checklist for building Cosma into a Go-native Arrow fe
 - [ ] Ensure internal pipelines operate on Arrow record batches.
 - [ ] Verify no row-oriented JSON/protobuf path exists in core operations.
 
+### 1.4 IO (CSV/Parquet)
+
+- [ ] Ship `ReadCSV`/`WriteCSV` with option structs and nullable defaults.
+- [ ] Ship `ReadParquet`/`WriteParquet` with Arrow properties passthrough.
+- [ ] Add CSV/Parquet round-trip tests for nulls and missing values.
+- [ ] Add IO examples + docs for option usage.
+
 ## Phase 2 - Feature Engineering Layer
 
 ### 2.1 Expression Engine

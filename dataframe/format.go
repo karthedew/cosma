@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -151,9 +152,56 @@ func valueFromArray(arr arrow.Array, idx int) string {
 			return "true"
 		}
 		return "false"
+	case *array.Timestamp:
+		typeInfo, ok := col.DataType().(*arrow.TimestampType)
+		if !ok {
+			return "<unsupported>"
+		}
+		return formatTimestamp(col.Value(idx), typeInfo)
+	case *array.Date32:
+		return formatDate32(col.Value(idx))
+	case *array.Date64:
+		return formatDate64(col.Value(idx))
 	default:
 		return "<unsupported>"
 	}
+}
+
+func formatTimestamp(value arrow.Timestamp, dtype *arrow.TimestampType) string {
+	if dtype == nil {
+		return "<unsupported>"
+	}
+	var nanos int64
+	switch dtype.Unit {
+	case arrow.Second:
+		nanos = int64(value) * int64(time.Second)
+	case arrow.Millisecond:
+		nanos = int64(value) * int64(time.Millisecond)
+	case arrow.Microsecond:
+		nanos = int64(value) * int64(time.Microsecond)
+	case arrow.Nanosecond:
+		nanos = int64(value)
+	default:
+		return "<unsupported>"
+	}
+
+	stamp := time.Unix(0, nanos)
+	if dtype.TimeZone != "" {
+		if loc, err := time.LoadLocation(dtype.TimeZone); err == nil {
+			stamp = stamp.In(loc)
+		}
+	}
+	return stamp.Format(time.RFC3339)
+}
+
+func formatDate32(value arrow.Date32) string {
+	stamp := time.Unix(0, 0).UTC().AddDate(0, 0, int(value))
+	return stamp.Format("2006-01-02")
+}
+
+func formatDate64(value arrow.Date64) string {
+	stamp := time.Unix(0, int64(value)*int64(time.Millisecond)).UTC()
+	return stamp.Format("2006-01-02")
 }
 
 func writeBorder(b *strings.Builder, left, mid, right string, widths []int) {

@@ -37,6 +37,39 @@ func main() {
 }
 ```
 
+IO (CSV/Parquet)
+```go
+df, err := dataframe.ReadCSV("data.csv")
+if err != nil {
+    panic(err)
+}
+
+if err := dataframe.WriteParquet(df, "data.parquet"); err != nil {
+    panic(err)
+}
+```
+
+IO Options
+```go
+df, err := dataframe.ReadCSV(
+    "data.csv",
+    dataframe.WithCSVChunkSize(4096),
+    dataframe.WithCSVNullValues([]string{"", "NA"}),
+)
+if err != nil {
+    panic(err)
+}
+
+err = dataframe.WriteParquet(
+    df,
+    "data.parquet",
+    dataframe.WithParquetAllowNullable(true),
+)
+if err != nil {
+    panic(err)
+}
+```
+
 Development
 - Run tests: `go test ./...`
 - Lint: `golangci-lint run`
@@ -45,7 +78,7 @@ Roadmap (early)
 - Arrow schema construction for RecordBatchIter.
 - Expression compilation and evaluation.
 - Compute operators: filter, project, groupby, join.
-- IO: CSV/Parquet read and write.
+- IO: CSV/Parquet scanning and pushdown.
 
 Contributing
 See `CONTRIBUTING.md` for local setup and workflow guidelines.
