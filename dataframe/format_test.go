@@ -47,3 +47,34 @@ func TestDataFrameStringEllipsis(t *testing.T) {
 		t.Fatalf("expected ellipsis in output")
 	}
 }
+
+func TestSeriesStringBasic(t *testing.T) {
+	s1, err := NewSeries("ids", []int32{1, 2, 3})
+	if err != nil {
+		t.Fatalf("NewSeries ids: %v", err)
+	}
+
+	output := s1.String()
+	checks := []string{"shape: (3,)", "ids", "i32"}
+	for _, check := range checks {
+		if !strings.Contains(output, check) {
+			t.Fatalf("expected output to contain %q", check)
+		}
+	}
+}
+
+func TestSeriesStringEllipsis(t *testing.T) {
+	values := make([]int32, 25)
+	for i := range values {
+		values[i] = int32(i)
+	}
+	s1, err := NewSeries("values", values)
+	if err != nil {
+		t.Fatalf("NewSeries values: %v", err)
+	}
+
+	output := s1.String()
+	if !strings.Contains(output, "…") {
+		t.Fatalf("expected ellipsis in output")
+	}
+}

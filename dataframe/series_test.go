@@ -3,6 +3,7 @@ package dataframe
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apache/arrow/go/v18/arrow"
 )
@@ -46,5 +47,21 @@ func TestNewSeriesData(t *testing.T) {
 	}
 	if s2.Len() != 2 {
 		t.Fatalf("Len = %d, want 2", s2.Len())
+	}
+
+	ts := time.Date(2026, 3, 4, 12, 0, 0, 0, time.UTC)
+	s3, err := NewSeries("ts", []time.Time{ts})
+	if err != nil {
+		t.Fatalf("NewSeries ts: %v", err)
+	}
+	if s3.Len() != 1 {
+		t.Fatalf("Len = %d, want 1", s3.Len())
+	}
+	tsType, ok := s3.DataType().(*arrow.TimestampType)
+	if !ok {
+		t.Fatalf("DataType = %T, want TimestampType", s3.DataType())
+	}
+	if tsType.Unit != arrow.Nanosecond || tsType.TimeZone != "UTC" {
+		t.Fatalf("TimestampType = %v, want nanosecond UTC", tsType)
 	}
 }

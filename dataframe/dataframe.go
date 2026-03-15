@@ -5,6 +5,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 
+	"github.com/karthedew/cosma/plan"
 	"github.com/karthedew/cosma/schema"
 )
 
@@ -86,6 +87,13 @@ func NewDataFrame(s *schema.Schema, cols []Series) (*DataFrame, error) {
 func (df *DataFrame) Schema() *schema.Schema { return df.schema }
 func (df *DataFrame) Height() int64          { return df.height }
 func (df *DataFrame) Width() int             { return len(df.cols) }
+
+func (df *DataFrame) Plan() *plan.LogicalPlan {
+	if df == nil {
+		return nil
+	}
+	return plan.NewLogicalPlan(plan.NewScanNode(df.schema, plan.ScanSourceDataFrame))
+}
 
 func (df *DataFrame) Column(name string) (Series, bool) {
 	for _, col := range df.cols {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/karthedew/cosma/dataframe"
-	"github.com/karthedew/cosma/expr"
+	"github.com/karthedew/cosma/internal/expr"
 )
 
 func Filter(df *dataframe.DataFrame, predicate expr.Expr) (*dataframe.DataFrame, error) {

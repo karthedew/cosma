@@ -33,6 +33,11 @@ func (s *Schema) Field(name string) (Field, bool) {
 	return s.fields[i], true
 }
 
+func (s *Schema) FieldIndex(name string) (int, bool) {
+	i, ok := s.index[name]
+	return i, ok
+}
+
 func (s *Schema) String() string {
 	return fmt.Sprintf("Schema(fields=%d)", len(s.fields))
 }

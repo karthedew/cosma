@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/karthedew/cosma/dataframe"
-	"github.com/karthedew/cosma/expr"
+	"github.com/karthedew/cosma/internal/expr"
 )
 
 func Project(df *dataframe.DataFrame, projections []expr.Expr) (*dataframe.DataFrame, error) {

@@ -48,6 +48,13 @@ func NewRecordBatchIterWithSchema(df *DataFrame, arrSchema *arrow.Schema) (*Reco
 	return &RecordBatchIter{df: df, chunkIdx: 0, maxChunks: max, schema: arrSchema}, nil
 }
 
+func (it *RecordBatchIter) Schema() *arrow.Schema {
+	if it == nil {
+		return nil
+	}
+	return it.schema
+}
+
 func (it *RecordBatchIter) Next() (arrow.Record, bool, error) {
 	if it.chunkIdx >= it.maxChunks {
 		return nil, false, nil

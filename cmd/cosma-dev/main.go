@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 
+	"github.com/karthedew/cosma/compute"
 	"github.com/karthedew/cosma/dataframe"
+	"github.com/karthedew/cosma/internal/expr"
 )
 
 func main() {
@@ -75,5 +77,17 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println(df)
+	// fmt.Println(df)
+
+	keys := []expr.Expr{
+		expr.Lit{Value: "col1"}, // placeholder name for now
+	}
+	aggs := []expr.Expr{
+		expr.Lit{Value: 1},
+		expr.Lit{Value: 1},
+	}
+	_, err = compute.GroupBy(df, keys, aggs)
+	if err != nil {
+		// expected if your stub returns an error after printing
+	}
 }

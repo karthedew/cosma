@@ -71,6 +71,47 @@ func (df *DataFrame) String() string {
 	return b.String()
 }
 
+func (s *Series) String() string {
+	if s == nil {
+		return "<nil>"
+	}
+	field := seriesField(s)
+	rows := s.Len()
+	width := max(strWidth(field.Name), strWidth(dtypeLabel(field)))
+	rowIndices := displayRowIndices(rows)
+	for _, row := range rowIndices {
+		width = max(width, strWidth(valueAt(*s, row)))
+	}
+	if rows > maxDisplayRows {
+		width = max(width, strWidth(ellipsisValue()))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "shape: (%d,)\n", rows)
+	writeBorder(&b, "┌", "┬", "┐", []int{width})
+	writeRow(&b, []schema.Field{field}, func(int) string { return field.Name }, []int{width})
+	writeRow(&b, []schema.Field{field}, func(int) string { return "---" }, []int{width})
+	writeRow(&b, []schema.Field{field}, func(int) string { return dtypeLabel(field) }, []int{width})
+	writeBorder(&b, "╞", "╪", "╡", []int{width})
+
+	if rows > maxDisplayRows {
+		for _, row := range rowIndices[:displayHeadRows] {
+			writeRow(&b, []schema.Field{field}, func(int) string { return valueAt(*s, row) }, []int{width})
+		}
+		writeRow(&b, []schema.Field{field}, func(int) string { return ellipsisValue() }, []int{width})
+		for _, row := range rowIndices[len(rowIndices)-displayTailRows:] {
+			writeRow(&b, []schema.Field{field}, func(int) string { return valueAt(*s, row) }, []int{width})
+		}
+	} else {
+		for _, row := range rowIndices {
+			writeRow(&b, []schema.Field{field}, func(int) string { return valueAt(*s, row) }, []int{width})
+		}
+	}
+
+	writeBorder(&b, "└", "┴", "┘", []int{width})
+	return b.String()
+}
+
 func displayRowIndices(rows int) []int {
 	if rows <= 0 {
 		return nil
@@ -109,6 +150,21 @@ func dtypeLabel(field schema.Field) string {
 		}
 		return "unknown"
 	}
+}
+
+func seriesField(series *Series) schema.Field {
+	if series == nil {
+		return schema.Field{}
+	}
+	name := series.Name()
+	if dtype := series.DataType(); dtype != nil {
+		field, err := schemaFieldFromArrow(name, dtype)
+		if err == nil {
+			return field
+		}
+		return schema.Field{Name: name, ArrowType: dtype}
+	}
+	return schema.Field{Name: name}
 }
 
 func valueAt(series Series, row int) string {

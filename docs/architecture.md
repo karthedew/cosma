@@ -2,6 +2,8 @@
 
 This project follows an Arrow-native, append-first column model.
 
+Architecture decisions are tracked in ADRs. See `docs/adr/README.md`.
+
 ## Class / Ownership Diagram
 
 ```mermaid

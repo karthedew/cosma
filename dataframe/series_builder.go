@@ -53,6 +53,8 @@ func NewSeries(name string, values any) (*Series, error) {
 		return NewSeriesFromChunked(name, chunkedFromDate32(v)), nil
 	case []arrow.Date64:
 		return NewSeriesFromChunked(name, chunkedFromDate64(v)), nil
+	case []time.Time:
+		return NewSeriesTimestamp(name, v, arrow.Nanosecond, "UTC")
 	default:
 		return nil, fmt.Errorf("unsupported series values type %T", values)
 	}
