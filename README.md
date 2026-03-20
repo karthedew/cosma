@@ -1,121 +1,165 @@
 # Cosma
 
-Cosma is a pre-alpha, Arrow-backed dataframe engine for Go. It focuses on a
-small core of columnar primitives today, with a path toward a Polars-like API
-and query planner tomorrow.
+Cosma is a pre-alpha, Arrow-native dataframe engine for Go.
 
-Status
-- Pre-alpha prototype. APIs will change and many features are stubs.
-- Targeting a minimal, composable core first: DataFrame, scan, plan, compute.
+It is focused on fast columnar data workflows with a practical eager API today,
+and a lazy + streaming execution path for larger-than-memory datasets.
 
-Goals
-- Arrow-first columnar data model.
-- Clear, minimal API surface that scales into lazy execution.
-- Friendly developer experience with strong tests and docs.
+## Status
 
-Install
+- Pre-alpha: APIs are still evolving.
+- Current core packages: `dataframe`, `scan`, `plan`, `compute`.
+- Short-term focus: correctness, memory ownership, streaming execution, and speed.
+
+## Project Focus
+
+- Useful eager dataframe operations first.
+- Lazy planning and chunked streaming execution.
+- Parallel execution for high throughput.
+- Arrow-native interoperability, including ADBC connectivity.
+- Numerical handoff into Gonum.
+
+## Install
+
 ```bash
 go get github.com/karthedew/cosma@latest
 ```
 
-Quickstart
+## Quickstart
+
 ```go
 package main
 
 import (
-    "fmt"
+	"fmt"
 
-    "github.com/karthedew/cosma/dataframe"
+	"github.com/karthedew/cosma/dataframe"
 )
 
 func main() {
-    ids, _ := dataframe.NewSeries("ids", []int64{1, 2, 3})
-    names, _ := dataframe.NewSeries("names", []string{"alpha", "beta", "gamma"})
+	ids, err := dataframe.NewSeries("ids", []int64{1, 2, 3})
+	if err != nil {
+		panic(err)
+	}
+	names, err := dataframe.NewSeries("names", []string{"alpha", "beta", "gamma"})
+	if err != nil {
+		panic(err)
+	}
 
-    df, _ := dataframe.New([]*dataframe.Series{ids, names})
-    fmt.Println(df.String())
+	df, err := dataframe.New([]*dataframe.Series{ids, names})
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(df.String())
 }
 ```
 
-Lazy Planning (Preview)
+## IO (CSV and Parquet)
+
 ```go
-lp, err := df.Lazy().
-    Select("names").
-    Limit(10).
-    Plan()
-if err != nil {
-    panic(err)
-}
+package main
 
-bound, err := plan.Bind(lp)
-if err != nil {
-    panic(err)
-}
-```
-
-Note: predicate expressions are still internal-only and will be surfaced when
-the expression API stabilizes.
-
-IO (CSV/Parquet)
-```go
-df, err := dataframe.ReadCSV("data.csv")
-if err != nil {
-    panic(err)
-}
-
-if err := dataframe.WriteParquet(df, "data.parquet"); err != nil {
-    panic(err)
-}
-```
-
-Streaming Scan (CSV/Parquet)
-```go
-reader, err := scan.ScanCSV("data.csv", scan.WithCSVChunkSize(2048))
-if err != nil {
-    panic(err)
-}
-defer reader.Release()
-
-for reader.Next() {
-    rec := reader.Record()
-    _ = rec
-}
-if err := reader.Err(); err != nil {
-    panic(err)
-}
-```
-
-IO Options
-```go
-df, err := dataframe.ReadCSV(
-    "data.csv",
-    dataframe.WithCSVChunkSize(4096),
-    dataframe.WithCSVNullValues([]string{"", "NA"}),
+import (
+	"github.com/karthedew/cosma/dataframe"
 )
-if err != nil {
-    panic(err)
-}
 
-err = dataframe.WriteParquet(
-    df,
-    "data.parquet",
-    dataframe.WithParquetAllowNullable(true),
-)
-if err != nil {
-    panic(err)
+func main() {
+	df, err := dataframe.ReadCSV("data.csv")
+	if err != nil {
+		panic(err)
+	}
+
+	if err := dataframe.WriteParquet(df, "data.parquet"); err != nil {
+		panic(err)
+	}
+
 }
 ```
 
-Development
+## Streaming Scan (Chunked)
+
+```go
+package main
+
+import (
+	"github.com/karthedew/cosma/scan"
+)
+
+func main() {
+	reader, err := scan.ScanCSV("data.csv", scan.WithCSVChunkSize(2048))
+	if err != nil {
+		panic(err)
+	}
+	defer reader.Release()
+
+	for reader.Next() {
+		rec := reader.Record()
+		_ = rec
+	}
+	if err := reader.Err(); err != nil {
+		panic(err)
+	}
+
+}
+```
+
+## Lazy Planning (Preview)
+
+```go
+package main
+
+import (
+	"github.com/karthedew/cosma/dataframe"
+	"github.com/karthedew/cosma/plan"
+)
+
+func main() {
+	ids, err := dataframe.NewSeries("ids", []int64{1, 2, 3})
+	if err != nil {
+		panic(err)
+	}
+	names, err := dataframe.NewSeries("names", []string{"alpha", "beta", "gamma"})
+	if err != nil {
+		panic(err)
+	}
+
+	df, err := dataframe.New([]*dataframe.Series{ids, names})
+	if err != nil {
+		panic(err)
+	}
+
+	lp, err := df.Lazy().
+		Select("names").
+		Limit(10).
+		Plan()
+	if err != nil {
+		panic(err)
+	}
+
+	bound, err := plan.Bind(lp)
+	if err != nil {
+		panic(err)
+	}
+	_ = bound
+
+}
+```
+
+Note: expression APIs are still maturing.
+
+## Development
+
 - Run tests: `go test ./...`
 - Lint: `golangci-lint run`
 
-Roadmap (early)
-- See `docs/roadmap.md` for the full multi-phase plan.
-- See `docs/architecture.md` and `docs/packages.md` for package intent.
+## Docs
 
-Contributing
-See `CONTRIBUTING.md` for local setup and workflow guidelines.
+- Roadmap: `ROADMAP.md`
+- Architecture: `docs/architecture.md`
+- Package guide: `docs/packages.md`
+- Contributing: `CONTRIBUTING.md`
 
-License
+## License
+
 Apache-2.0. See `LICENSE`.
