@@ -114,13 +114,13 @@ func collectColumns(e expr.Expr) []string {
 		switch v := node.(type) {
 		case nil:
 			return
-		case expr.Col:
+		case expr.ColumnNode:
 			seen[v.Name] = struct{}{}
-		case *expr.Col:
+		case *expr.ColumnNode:
 			if v != nil {
 				seen[v.Name] = struct{}{}
 			}
-		case expr.Lit, *expr.Lit:
+		case expr.LiteralNode, *expr.LiteralNode:
 			return
 		case expr.Eq:
 			walk(v.Left)

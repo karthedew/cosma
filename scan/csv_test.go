@@ -94,7 +94,7 @@ func TestScanCSVFilterPipeline(t *testing.T) {
 		plan.NewProjectNode(
 			plan.NewFilterNode(
 				plan.NewScanNode(cosmaSchema, "csv"),
-				expr.Gt{Left: expr.Col{Name: "ids"}, Right: expr.Lit{Value: 2}},
+				expr.Gt{Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}},
 			),
 			[]string{"vals"},
 		),

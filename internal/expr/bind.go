@@ -112,6 +112,13 @@ func (p boundPredicate) String() string {
 	return fmt.Sprintf("%s %s %s", p.left, p.op, p.right)
 }
 
+func (boundPredicate) Children() []Expr { return nil }
+func (boundPredicate) exprNode()        {}
+
+func (boundPredicate) DataType(_ *schema.Schema) (arrow.DataType, error) {
+	return arrow.FixedWidthTypes.Boolean, nil
+}
+
 func (p boundPredicate) Eval(rec arrow.Record) (arrow.Array, error) {
 	if rec == nil {
 		return nil, fmt.Errorf("record is nil")
@@ -236,7 +243,7 @@ func newPredicate(op string, left boundValue, right boundValue) (BoundPredicate,
 	return boundPredicate{op: op, left: left, right: right}, nil
 }
 
-func bindColumn(col Col, s *schema.Schema) (boundValue, valueKind, error) {
+func bindColumn(col ColumnNode, s *schema.Schema) (boundValue, valueKind, error) {
 	if col.Name == "" {
 		return nil, kindUnknown, fmt.Errorf("column name is empty")
 	}
@@ -255,7 +262,7 @@ func bindColumn(col Col, s *schema.Schema) (boundValue, valueKind, error) {
 	return boundColumn{name: col.Name, index: idx, kind: kind}, kind, nil
 }
 
-func bindLiteral(lit Lit, kind valueKind) (boundValue, error) {
+func bindLiteral(lit LiteralNode, kind valueKind) (boundValue, error) {
 	val, err := coerceLiteral(lit.Value, kind)
 	if err != nil {
 		return nil, err
@@ -522,26 +529,26 @@ func isNumericKind(kind valueKind) bool {
 	return kind == kindInt || kind == kindUint || kind == kindFloat
 }
 
-func asCol(e Expr) (Col, bool) {
+func asCol(e Expr) (ColumnNode, bool) {
 	switch v := e.(type) {
-	case Col:
+	case ColumnNode:
 		return v, true
-	case *Col:
+	case *ColumnNode:
 		if v != nil {
 			return *v, true
 		}
 	}
-	return Col{}, false
+	return ColumnNode{}, false
 }
 
-func asLit(e Expr) (Lit, bool) {
+func asLit(e Expr) (LiteralNode, bool) {
 	switch v := e.(type) {
-	case Lit:
+	case LiteralNode:
 		return v, true
-	case *Lit:
+	case *LiteralNode:
 		if v != nil {
 			return *v, true
 		}
 	}
-	return Lit{}, false
+	return LiteralNode{}, false
 }

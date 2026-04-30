@@ -12,7 +12,7 @@ import (
 
 func TestBindPredicateStringGtFails(t *testing.T) {
 	s := schema.New(schema.Field{Name: "name", Type: schema.Utf8, ArrowType: arrow.BinaryTypes.String})
-	_, err := BindPredicate(Gt{Left: Col{Name: "name"}, Right: Lit{Value: "a"}}, s)
+	_, err := BindPredicate(Gt{Left: ColumnNode{Name: "name"}, Right: LiteralNode{Value: "a"}}, s)
 	if err == nil {
 		t.Fatalf("expected bind error")
 	}
@@ -20,7 +20,7 @@ func TestBindPredicateStringGtFails(t *testing.T) {
 
 func TestBoundPredicateEval(t *testing.T) {
 	s := schema.New(schema.Field{Name: "ids", Type: schema.Int32, ArrowType: arrow.PrimitiveTypes.Int32})
-	pred, err := BindPredicate(Gt{Left: Col{Name: "ids"}, Right: Lit{Value: 1}}, s)
+	pred, err := BindPredicate(Gt{Left: ColumnNode{Name: "ids"}, Right: LiteralNode{Value: 1}}, s)
 	if err != nil {
 		t.Fatalf("BindPredicate: %v", err)
 	}

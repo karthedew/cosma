@@ -101,7 +101,7 @@ func TestCompileFilterProjectLimit(t *testing.T) {
 	}
 
 	pl, err := df.Lazy().
-		Filter(expr.Gt{Left: expr.Col{Name: "ids"}, Right: expr.Lit{Value: 2}}).
+		Filter(expr.Gt{Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}}).
 		Select("ids").
 		Limit(1).
 		Plan()

@@ -80,11 +80,11 @@ func main() {
 	// fmt.Println(df)
 
 	keys := []expr.Expr{
-		expr.Lit{Value: "col1"}, // placeholder name for now
+		expr.LiteralNode{Value: "col1"}, // placeholder name for now
 	}
 	aggs := []expr.Expr{
-		expr.Lit{Value: 1},
-		expr.Lit{Value: 1},
+		expr.LiteralNode{Value: 1},
+		expr.LiteralNode{Value: 1},
 	}
 	_, err = compute.GroupBy(df, keys, aggs)
 	if err != nil {
