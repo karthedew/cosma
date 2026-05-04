@@ -13,6 +13,7 @@ import (
 
 type Pipeline struct {
 	refCount int64
+	ctx      context.Context
 	src      array.RecordReader
 	ops      []operator.Operator
 	schema   *arrow.Schema
@@ -37,6 +38,7 @@ func NewPipeline(ctx context.Context, src array.RecordReader, ops []operator.Ope
 
 	return &Pipeline{
 		refCount: 1,
+		ctx:      ctx,
 		src:      src,
 		ops:      ops,
 		schema:   schema,
@@ -72,12 +74,20 @@ func (p *Pipeline) Next() bool {
 	if p.err != nil || p.src == nil {
 		return false
 	}
+	if err := p.ctx.Err(); err != nil {
+		p.err = err
+		return false
+	}
 	if p.cur != nil {
 		p.cur.Release()
 		p.cur = nil
 	}
 
 	for p.src.Next() {
+		if err := p.ctx.Err(); err != nil {
+			p.err = err
+			return false
+		}
 		rec := p.src.Record()
 		if rec == nil {
 			p.err = fmt.Errorf("source record is nil")

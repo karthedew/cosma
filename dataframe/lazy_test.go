@@ -23,7 +23,7 @@ func TestLazyPlanBuild(t *testing.T) {
 	}
 
 	lf := df.Lazy().
-		Filter(expr.Gt{Left: expr.ColumnNode{Name: "a"}, Right: expr.LiteralNode{Value: 10}}).
+		Filter(expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "a"}, Right: expr.LiteralNode{Value: 10}}).
 		Select("a").
 		Limit(5)
 

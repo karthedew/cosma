@@ -130,25 +130,4 @@ func TestRewriteCoversEveryNonLeafNode(t *testing.T) {
 	if got, want := out.String(), "(not((x == 1)) and sum(cast(z as float64))) as out"; got != want {
 		t.Fatalf("rewrite produced %q, want %q", got, want)
 	}
-	// The legacy Eq/Gt nodes also reconstruct cleanly via withChildren.
-	legacy := Eq{Left: ColumnNode{Name: "a"}, Right: LiteralNode{Value: 5}}
-	rebuilt := Rewrite(legacy, func(e Expr) Expr {
-		if c, ok := e.(ColumnNode); ok && c.Name == "a" {
-			return ColumnNode{Name: "b"}
-		}
-		return e
-	})
-	if got, want := rebuilt.String(), "b == 5"; got != want {
-		t.Fatalf("legacy rewrite produced %q, want %q", got, want)
-	}
-	legacyGt := Gt{Left: ColumnNode{Name: "a"}, Right: LiteralNode{Value: 5}}
-	rebuiltGt := Rewrite(legacyGt, func(e Expr) Expr {
-		if c, ok := e.(ColumnNode); ok && c.Name == "a" {
-			return ColumnNode{Name: "b"}
-		}
-		return e
-	})
-	if got, want := rebuiltGt.String(), "b > 5"; got != want {
-		t.Fatalf("legacy Gt rewrite produced %q, want %q", got, want)
-	}
 }

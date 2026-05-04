@@ -34,7 +34,7 @@ func TestPipelineFilterProjectLimit(t *testing.T) {
 	}
 	defer reader.Release()
 
-	filter, err := operator.NewFilter(reader.Schema(), func(rec arrow.Record) (arrow.Array, error) {
+	filter, err := operator.NewFilter(context.Background(), reader.Schema(), func(rec arrow.Record) (arrow.Array, error) {
 		col := rec.Column(0).(*array.Int32)
 		builder := array.NewBooleanBuilder(memory.DefaultAllocator)
 		defer builder.Release()

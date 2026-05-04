@@ -1,10 +1,12 @@
 package exec
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow/go/v18/arrow/memory"
 
 	"github.com/karthedew/cosma/internal/expr"
 	"github.com/karthedew/cosma/operator"
@@ -12,15 +14,33 @@ import (
 	"github.com/karthedew/cosma/schema"
 )
 
-func Compile(plan *plan.LogicalPlan, source array.RecordReader) (array.RecordReader, []operator.Operator, error) {
+// Compile lowers a logical plan into a source reader plus an ordered list
+// of operators ready to feed into a Pipeline. ctx is captured by per-batch
+// closures (currently the filter predicate) and by ctx-aware operators
+// (currently operator.Filter, which forwards it to compute.FilterRecordBatch);
+// it is not stored on Compile itself. mem is the allocator used for any
+// intermediate arrays produced during evaluation. Passing nil for either
+// substitutes context.Background() and memory.DefaultAllocator.
+func Compile(
+	ctx context.Context,
+	plan *plan.LogicalPlan,
+	source array.RecordReader,
+	mem memory.Allocator,
+) (array.RecordReader, []operator.Operator, error) {
 	if plan == nil || plan.Root == nil {
 		return nil, nil, fmt.Errorf("logical plan is empty")
 	}
 	if source == nil {
 		return nil, nil, fmt.Errorf("source reader is nil")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if mem == nil {
+		mem = memory.DefaultAllocator
+	}
 
-	src, ops, _, err := compileNode(plan.Root, source)
+	src, ops, _, err := compileNode(ctx, plan.Root, source, mem)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -30,7 +50,12 @@ func Compile(plan *plan.LogicalPlan, source array.RecordReader) (array.RecordRea
 	return src, ops, nil
 }
 
-func compileNode(node plan.LogicalNode, source array.RecordReader) (array.RecordReader, []operator.Operator, *schema.Schema, error) {
+func compileNode(
+	ctx context.Context,
+	node plan.LogicalNode,
+	source array.RecordReader,
+	mem memory.Allocator,
+) (array.RecordReader, []operator.Operator, *schema.Schema, error) {
 	switch n := node.(type) {
 	case *plan.ScanNode:
 		if n.Schema() == nil {
@@ -38,7 +63,7 @@ func compileNode(node plan.LogicalNode, source array.RecordReader) (array.Record
 		}
 		return source, nil, n.Schema(), nil
 	case *plan.ProjectNode:
-		src, ops, currentSchema, err := compileNode(n.Input, source)
+		src, ops, currentSchema, err := compileNode(ctx, n.Input, source, mem)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -56,7 +81,7 @@ func compileNode(node plan.LogicalNode, source array.RecordReader) (array.Record
 		}
 		return src, append(ops, proj), n.Schema(), nil
 	case *plan.LimitNode:
-		src, ops, currentSchema, err := compileNode(n.Input, source)
+		src, ops, currentSchema, err := compileNode(ctx, n.Input, source, mem)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -70,22 +95,32 @@ func compileNode(node plan.LogicalNode, source array.RecordReader) (array.Record
 		}
 		return src, append(ops, lim), currentSchema, nil
 	case *plan.FilterNode:
-		src, ops, currentSchema, err := compileNode(n.Input, source)
+		src, ops, currentSchema, err := compileNode(ctx, n.Input, source, mem)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if currentSchema == nil {
 			return nil, nil, nil, fmt.Errorf("filter schema is nil")
 		}
-		predicate, err := expr.BindPredicate(n.Predicate, currentSchema)
+		predicate, err := expr.PromoteLiterals(n.Predicate, currentSchema)
 		if err != nil {
 			return nil, nil, nil, err
+		}
+		dt, err := predicate.DataType(currentSchema)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if dt == nil || dt.ID() != arrow.BOOL {
+			return nil, nil, nil, fmt.Errorf("filter predicate must be bool, got %s", dt)
 		}
 		arrowSchema, err := arrowSchemaFromCosma(currentSchema)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		filterOp, err := operator.NewFilter(arrowSchema, predicate.Eval, nil)
+		evalFn := func(rec arrow.Record) (arrow.Array, error) {
+			return Eval(ctx, predicate, rec, nil, mem)
+		}
+		filterOp, err := operator.NewFilter(ctx, arrowSchema, evalFn, nil)
 		if err != nil {
 			return nil, nil, nil, err
 		}

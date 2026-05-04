@@ -24,7 +24,7 @@ func TestBindFilterMissingColumn(t *testing.T) {
 	s := schema.New(
 		schema.Field{Name: "a", Type: schema.Int32, ArrowType: arrow.PrimitiveTypes.Int32},
 	)
-	root := NewFilterNode(NewScanNode(s, ScanSourceDataFrame), expr.Gt{Left: expr.ColumnNode{Name: "missing"}, Right: expr.LiteralNode{Value: 1}})
+	root := NewFilterNode(NewScanNode(s, ScanSourceDataFrame), expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "missing"}, Right: expr.LiteralNode{Value: 1}})
 	plan := NewLogicalPlan(root)
 	if _, err := Bind(plan); err == nil {
 		t.Fatalf("expected bind error")

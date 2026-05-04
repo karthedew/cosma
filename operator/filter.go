@@ -17,7 +17,10 @@ type Filter struct {
 	ctx     context.Context
 }
 
-func NewFilter(schema *arrow.Schema, fn FilterFunc, options *compute.FilterOptions) (*Filter, error) {
+func NewFilter(ctx context.Context, schema *arrow.Schema, fn FilterFunc, options *compute.FilterOptions) (*Filter, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is nil")
+	}
 	if schema == nil {
 		return nil, fmt.Errorf("schema is nil")
 	}
@@ -27,7 +30,7 @@ func NewFilter(schema *arrow.Schema, fn FilterFunc, options *compute.FilterOptio
 	if options == nil {
 		options = compute.DefaultFilterOptions()
 	}
-	return &Filter{schema: schema, fn: fn, options: options, ctx: context.Background()}, nil
+	return &Filter{schema: schema, fn: fn, options: options, ctx: ctx}, nil
 }
 
 func (f *Filter) Schema() *arrow.Schema { return f.schema }

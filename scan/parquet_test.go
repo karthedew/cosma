@@ -58,7 +58,7 @@ func TestScanParquetPipeline(t *testing.T) {
 		plan.NewProjectNode(
 			plan.NewFilterNode(
 				plan.NewScanNode(cosmaSchema, "parquet"),
-				expr.Gt{Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}},
+				expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}},
 			),
 			[]string{"ids"},
 		),
@@ -70,7 +70,7 @@ func TestScanParquetPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
-	src, ops, err := exec.Compile(bound, reader)
+	src, ops, err := exec.Compile(context.Background(), bound, reader, nil)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

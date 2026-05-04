@@ -2,6 +2,7 @@ package exec
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow/array"
@@ -44,7 +45,7 @@ func TestCompileProjectLimit(t *testing.T) {
 		t.Fatalf("Bind: %v", err)
 	}
 
-	src, ops, err := Compile(bound, reader)
+	src, ops, err := Compile(context.Background(), bound, reader, nil)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}
@@ -85,6 +86,53 @@ func TestCompileProjectLimit(t *testing.T) {
 	}
 }
 
+func TestPipelineCancelledCtxStops(t *testing.T) {
+	ids, err := dataframe.NewSeries("ids", []int32{1, 2, 3, 4})
+	if err != nil {
+		t.Fatalf("NewSeries: %v", err)
+	}
+	df, err := dataframe.New([]*dataframe.Series{ids})
+	if err != nil {
+		t.Fatalf("New dataframe: %v", err)
+	}
+
+	pl, err := df.Lazy().
+		Filter(expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 0}}).
+		Plan()
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	bound, err := plan.Bind(pl)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+
+	reader, err := stream.NewDataFrameRecordReader(df)
+	if err != nil {
+		t.Fatalf("NewDataFrameRecordReader: %v", err)
+	}
+	defer reader.Release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	src, ops, err := Compile(ctx, bound, reader, nil)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+	pipe, err := NewPipeline(ctx, src, ops)
+	if err != nil {
+		t.Fatalf("NewPipeline: %v", err)
+	}
+	defer pipe.Release()
+
+	cancel()
+	if pipe.Next() {
+		t.Fatalf("expected Next false after cancel")
+	}
+	if !errors.Is(pipe.Err(), context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", pipe.Err())
+	}
+}
+
 func TestCompileFilterProjectLimit(t *testing.T) {
 	ids, err := dataframe.NewSeries("ids", []int32{1, 2, 3, 4})
 	if err != nil {
@@ -101,7 +149,7 @@ func TestCompileFilterProjectLimit(t *testing.T) {
 	}
 
 	pl, err := df.Lazy().
-		Filter(expr.Gt{Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}}).
+		Filter(expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}}).
 		Select("ids").
 		Limit(1).
 		Plan()
@@ -120,7 +168,7 @@ func TestCompileFilterProjectLimit(t *testing.T) {
 	}
 	defer reader.Release()
 
-	src, ops, err := Compile(bound, reader)
+	src, ops, err := Compile(context.Background(), bound, reader, nil)
 	if err != nil {
 		t.Fatalf("Compile: %v", err)
 	}

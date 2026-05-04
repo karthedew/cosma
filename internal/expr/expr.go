@@ -1,8 +1,6 @@
 package expr
 
 import (
-	"fmt"
-
 	"github.com/apache/arrow/go/v18/arrow"
 
 	"github.com/karthedew/cosma/schema"
@@ -25,30 +23,4 @@ type Expr interface {
 	Children() []Expr
 	DataType(s *schema.Schema) (arrow.DataType, error)
 	exprNode()
-}
-
-type Eq struct {
-	Left  Expr
-	Right Expr
-}
-
-func (e Eq) String() string   { return fmt.Sprintf("%s == %s", e.Left, e.Right) }
-func (e Eq) Children() []Expr { return []Expr{e.Left, e.Right} }
-func (Eq) exprNode()          {}
-
-func (Eq) DataType(_ *schema.Schema) (arrow.DataType, error) {
-	return arrow.FixedWidthTypes.Boolean, nil
-}
-
-type Gt struct {
-	Left  Expr
-	Right Expr
-}
-
-func (g Gt) String() string   { return fmt.Sprintf("%s > %s", g.Left, g.Right) }
-func (g Gt) Children() []Expr { return []Expr{g.Left, g.Right} }
-func (Gt) exprNode()          {}
-
-func (Gt) DataType(_ *schema.Schema) (arrow.DataType, error) {
-	return arrow.FixedWidthTypes.Boolean, nil
 }

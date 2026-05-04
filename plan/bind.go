@@ -109,38 +109,12 @@ func bindNode(node LogicalNode) (LogicalNode, error) {
 
 func collectColumns(e expr.Expr) []string {
 	seen := make(map[string]struct{})
-	var walk func(expr.Expr)
-	walk = func(node expr.Expr) {
-		switch v := node.(type) {
-		case nil:
-			return
-		case expr.ColumnNode:
-			seen[v.Name] = struct{}{}
-		case *expr.ColumnNode:
-			if v != nil {
-				seen[v.Name] = struct{}{}
-			}
-		case expr.LiteralNode, *expr.LiteralNode:
-			return
-		case expr.Eq:
-			walk(v.Left)
-			walk(v.Right)
-		case *expr.Eq:
-			if v != nil {
-				walk(v.Left)
-				walk(v.Right)
-			}
-		case expr.Gt:
-			walk(v.Left)
-			walk(v.Right)
-		case *expr.Gt:
-			if v != nil {
-				walk(v.Left)
-				walk(v.Right)
-			}
+	_ = expr.Walk(e, func(node expr.Expr) error {
+		if c, ok := node.(expr.ColumnNode); ok {
+			seen[c.Name] = struct{}{}
 		}
-	}
-	walk(e)
+		return nil
+	})
 
 	out := make([]string, 0, len(seen))
 	for name := range seen {

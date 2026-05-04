@@ -176,10 +176,150 @@ func TestEvalUnsupportedOp(t *testing.T) {
 	rec := makeInt64Batch(t, mem, "ids", []int64{1, 2}, nil)
 	defer rec.Release()
 
-	tree := expr.Col("ids").Gt(1).Build()
+	// Add is not in the kernel set yet — confirm we surface that cleanly.
+	tree := expr.Col("ids").Add(1).Build()
 	_, err := Eval(context.Background(), tree, rec, nil, mem)
 	if err == nil {
 		t.Fatalf("expected error for not-yet-implemented op")
+	}
+}
+
+func TestEvalGtInt64(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	rec := makeInt64Batch(t, mem, "ids", []int64{1, 2, 3, 4}, nil)
+	defer rec.Release()
+
+	tree := expr.Col("ids").Gt(2).Build()
+	out, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	defer out.Release()
+
+	got := boolValues(t, out)
+	want := []*bool{ptr(false), ptr(false), ptr(true), ptr(true)}
+	if !equalBoolMask(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEvalEqFloat64(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	b := array.NewFloat64Builder(mem)
+	b.AppendValues([]float64{1.5, 2.5, 3.5}, nil)
+	arr := b.NewArray()
+	b.Release()
+	defer arr.Release()
+	sch := arrow.NewSchema([]arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Float64}}, nil)
+	rec := array.NewRecord(sch, []arrow.Array{arr}, 3)
+	defer rec.Release()
+
+	tree := expr.Col("x").Eq(2.5).Build()
+	out, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	defer out.Release()
+
+	got := boolValues(t, out)
+	want := []*bool{ptr(false), ptr(true), ptr(false)}
+	if !equalBoolMask(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEvalEqString(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	b := array.NewStringBuilder(mem)
+	b.AppendValues([]string{"alpha", "beta", "gamma"}, nil)
+	arr := b.NewArray()
+	b.Release()
+	defer arr.Release()
+	sch := arrow.NewSchema([]arrow.Field{{Name: "s", Type: arrow.BinaryTypes.String}}, nil)
+	rec := array.NewRecord(sch, []arrow.Array{arr}, 3)
+	defer rec.Release()
+
+	tree := expr.Col("s").Eq("beta").Build()
+	out, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	defer out.Release()
+
+	got := boolValues(t, out)
+	want := []*bool{ptr(false), ptr(true), ptr(false)}
+	if !equalBoolMask(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEvalEqBool(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	b := array.NewBooleanBuilder(mem)
+	b.AppendValues([]bool{true, false, true}, nil)
+	arr := b.NewArray()
+	b.Release()
+	defer arr.Release()
+	sch := arrow.NewSchema([]arrow.Field{{Name: "f", Type: arrow.FixedWidthTypes.Boolean}}, nil)
+	rec := array.NewRecord(sch, []arrow.Array{arr}, 3)
+	defer rec.Release()
+
+	tree := expr.Col("f").Eq(true).Build()
+	out, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	defer out.Release()
+
+	got := boolValues(t, out)
+	want := []*bool{ptr(true), ptr(false), ptr(true)}
+	if !equalBoolMask(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+func TestEvalGtBoolUnsupported(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	b := array.NewBooleanBuilder(mem)
+	b.AppendValues([]bool{true, false}, nil)
+	arr := b.NewArray()
+	b.Release()
+	defer arr.Release()
+	sch := arrow.NewSchema([]arrow.Field{{Name: "f", Type: arrow.FixedWidthTypes.Boolean}}, nil)
+	rec := array.NewRecord(sch, []arrow.Array{arr}, 2)
+	defer rec.Release()
+
+	tree := expr.Col("f").Gt(true).Build()
+	_, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err == nil {
+		t.Fatalf("expected error for Gt on bool")
+	}
+}
+
+func TestEvalLiteralBroadcastTypedWidths(t *testing.T) {
+	mem := newTrackingAlloc(t)
+	// Float32 column compared against an Int32-typed literal would fail
+	// type check; use matching widths to exercise both broadcast paths.
+	fb := array.NewFloat32Builder(mem)
+	fb.AppendValues([]float32{1.0, 2.0, 3.0}, nil)
+	farr := fb.NewArray()
+	fb.Release()
+	defer farr.Release()
+	sch := arrow.NewSchema([]arrow.Field{{Name: "x", Type: arrow.PrimitiveTypes.Float32}}, nil)
+	rec := array.NewRecord(sch, []arrow.Array{farr}, 3)
+	defer rec.Release()
+
+	tree := expr.Col("x").Eq(expr.Float32(2.0)).Build()
+	out, err := Eval(context.Background(), tree, rec, nil, mem)
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	defer out.Release()
+
+	got := boolValues(t, out)
+	want := []*bool{ptr(false), ptr(true), ptr(false)}
+	if !equalBoolMask(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 

@@ -53,10 +53,6 @@ func Rewrite(e Expr, fn func(Expr) Expr) Expr {
 // silently dropping rewrites.
 func withChildren(e Expr, children []Expr) Expr {
 	switch n := e.(type) {
-	case Eq:
-		return Eq{Left: children[0], Right: children[1]}
-	case Gt:
-		return Gt{Left: children[0], Right: children[1]}
 	case BinaryNode:
 		return BinaryNode{Op: n.Op, Left: children[0], Right: children[1]}
 	case UnaryNode:
