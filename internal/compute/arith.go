@@ -23,6 +23,14 @@ func arithKernel(op expr.BinaryOp, l, r arrow.Array, mem memory.Allocator) (arro
 	if l.Len() != r.Len() {
 		return nil, fmt.Errorf("compute.arith: length mismatch (%d vs %d)", l.Len(), r.Len())
 	}
+
+	// Temporal arithmetic mixes types (Timestamp - Timestamp -> Duration,
+	// Timestamp +/- Duration -> Timestamp), so handle it before the
+	// same-type numeric dispatch.
+	if isTemporalArith(l.DataType(), r.DataType()) {
+		return temporalArith(op, l, r, mem)
+	}
+
 	if l.DataType().ID() != r.DataType().ID() {
 		return nil, fmt.Errorf("compute.arith: type mismatch (%s vs %s)", l.DataType(), r.DataType())
 	}
@@ -49,7 +57,7 @@ func arithKernel(op expr.BinaryOp, l, r arrow.Array, mem memory.Allocator) (arro
 	case arrow.FLOAT64:
 		return arith[float64](op, l.(*array.Float64), r.(*array.Float64), array.NewFloat64Builder(mem))
 	default:
-		return nil, fmt.Errorf("compute.arith: type %s not supported", l.DataType())
+		return nil, errNoBinaryKernel
 	}
 }
 

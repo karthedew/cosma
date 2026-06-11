@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"cmp"
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -42,6 +43,10 @@ func GroupReduce(groupIDs []int, numGroups int, chunked *arrow.Chunked) ([]Aggre
 		return groupTyped[float32](groupIDs, numGroups, chunked.Chunks(), func(a arrow.Array) valueArray[float32] { return a.(*array.Float32) }), nil
 	case arrow.FLOAT64:
 		return groupTyped[float64](groupIDs, numGroups, chunked.Chunks(), func(a arrow.Array) valueArray[float64] { return a.(*array.Float64) }), nil
+	case arrow.STRING:
+		return groupOrdered[string](groupIDs, numGroups, chunked.Chunks(), func(a arrow.Array) valueArray[string] { return a.(*array.String) }), nil
+	case arrow.LARGE_STRING:
+		return groupOrdered[string](groupIDs, numGroups, chunked.Chunks(), func(a arrow.Array) valueArray[string] { return a.(*array.LargeString) }), nil
 	default:
 		// Count is type-agnostic: it only counts non-null values, so any
 		// Arrow type (utf8, bool, etc.) can be reduced for AggOpCount even
@@ -114,6 +119,50 @@ func groupTyped[T number](groupIDs []int, numGroups int, chunks []arrow.Array, a
 			ag.Min = mins[g]
 			ag.Max = maxs[g]
 			ag.Mean = float64(sums[g]) / float64(counts[g])
+		}
+		out[g] = ag
+	}
+	return out
+}
+
+// groupOrdered folds an ordered, non-numeric column (e.g. strings) into
+// per-group Count and lexicographic Min/Max. Sum and Mean stay zero.
+func groupOrdered[T cmp.Ordered](groupIDs []int, numGroups int, chunks []arrow.Array, as func(arrow.Array) valueArray[T]) []Aggregates {
+	mins := make([]T, numGroups)
+	maxs := make([]T, numGroups)
+	counts := make([]int64, numGroups)
+	seen := make([]bool, numGroups)
+
+	row := 0
+	for _, ch := range chunks {
+		va := as(ch)
+		for i := 0; i < va.Len(); i++ {
+			g := groupIDs[row]
+			row++
+			if va.IsNull(i) {
+				continue
+			}
+			v := va.Value(i)
+			if !seen[g] {
+				mins[g], maxs[g], seen[g] = v, v, true
+			} else {
+				if v < mins[g] {
+					mins[g] = v
+				}
+				if v > maxs[g] {
+					maxs[g] = v
+				}
+			}
+			counts[g]++
+		}
+	}
+
+	out := make([]Aggregates, numGroups)
+	for g := 0; g < numGroups; g++ {
+		ag := Aggregates{Count: counts[g]}
+		if counts[g] > 0 {
+			ag.Min = mins[g]
+			ag.Max = maxs[g]
 		}
 		out[g] = ag
 	}

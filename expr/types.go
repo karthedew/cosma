@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/apache/arrow/go/v18/arrow"
 )
@@ -140,6 +141,10 @@ func inferLiteralType(v any) (arrow.DataType, error) {
 	switch v.(type) {
 	case nil:
 		return nil, fmt.Errorf("literal value is nil")
+	case time.Time:
+		return &arrow.TimestampType{Unit: arrow.Nanosecond, TimeZone: "UTC"}, nil
+	case arrow.Timestamp:
+		return &arrow.TimestampType{Unit: arrow.Nanosecond, TimeZone: "UTC"}, nil
 	case bool:
 		return arrow.FixedWidthTypes.Boolean, nil
 	case string:

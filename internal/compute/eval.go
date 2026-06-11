@@ -6,6 +6,7 @@
 package compute
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 
@@ -40,6 +41,10 @@ func Eval(e expr.ExprNode, rec arrow.Record, mem memory.Allocator) (arrow.Array,
 		return evalLiteral(n, int(rec.NumRows()), mem)
 	case expr.BinaryNode:
 		return evalBinary(n, rec, mem)
+	case expr.UnaryNode:
+		return evalUnary(n, rec, mem)
+	case expr.CastNode:
+		return evalCast(n, rec, mem)
 	case expr.AliasNode:
 		return Eval(n.Inner, rec, mem)
 	default:
@@ -79,14 +84,36 @@ func evalBinary(n expr.BinaryNode, rec arrow.Record, mem memory.Allocator) (arro
 	case expr.BinaryOpEq, expr.BinaryOpNeq,
 		expr.BinaryOpLt, expr.BinaryOpLte,
 		expr.BinaryOpGt, expr.BinaryOpGte:
-		return compareKernel(n.Op, left, right, mem)
+		return dispatchBinary(n.Op, left, right, mem, compareKernel)
+	case expr.BinaryOpAnd, expr.BinaryOpOr:
+		return logicalKernel(n.Op, left, right, mem)
 	case expr.BinaryOpAdd, expr.BinaryOpSub,
 		expr.BinaryOpMul, expr.BinaryOpDiv:
-		return arithKernel(n.Op, left, right, mem)
+		return dispatchBinary(n.Op, left, right, mem, arithKernel)
 	default:
-		return nil, fmt.Errorf("compute.Eval: binary op %s not yet implemented", n.Op)
+		return nil, fmt.Errorf("compute.Eval: binary op %s not supported", n.Op)
 	}
 }
+
+// dispatchBinary tries the built-in kernel first; if it reports the operand type
+// is unsupported it falls back to a registered custom kernel for that type ID,
+// and otherwise surfaces a clean "type X not supported for op Y" error.
+func dispatchBinary(op expr.BinaryOp, left, right arrow.Array, mem memory.Allocator,
+	builtin func(expr.BinaryOp, arrow.Array, arrow.Array, memory.Allocator) (arrow.Array, error),
+) (arrow.Array, error) {
+	out, err := builtin(op, left, right, mem)
+	if err == errNoBinaryKernel {
+		if k, ok := lookupBinaryKernel(left.DataType().ID()); ok {
+			return k(op, left, right, mem)
+		}
+		return nil, fmt.Errorf("compute.Eval: type %s not supported for op %s", left.DataType(), op)
+	}
+	return out, err
+}
+
+// errNoBinaryKernel signals that a built-in binary kernel has no case for the
+// operand type, so dispatchBinary should consult the custom kernel registry.
+var errNoBinaryKernel = fmt.Errorf("no built-in binary kernel")
 
 // valueArray is the structural shape of every primitive Arrow array that
 // kernels read. *array.Int64, *array.String, *array.Boolean etc. each satisfy
@@ -168,10 +195,81 @@ func compareKernel(op expr.BinaryOp, l, r arrow.Array, mem memory.Allocator) (ar
 		return ordered[float64](op, l.(*array.Float64), r.(*array.Float64), mem)
 	case arrow.STRING:
 		return ordered[string](op, l.(*array.String), r.(*array.String), mem)
+	case arrow.LARGE_STRING:
+		return ordered[string](op, l.(*array.LargeString), r.(*array.LargeString), mem)
+	case arrow.BINARY:
+		return bytesCompare(op, l.(*array.Binary), r.(*array.Binary), mem)
+	case arrow.LARGE_BINARY:
+		return bytesCompare(op, l.(*array.LargeBinary), r.(*array.LargeBinary), mem)
 	case arrow.BOOL:
 		return boolCompare(op, l.(*array.Boolean), r.(*array.Boolean), mem)
+	case arrow.TIMESTAMP:
+		return ordered[arrow.Timestamp](op, l.(*array.Timestamp), r.(*array.Timestamp), mem)
+	case arrow.DATE32:
+		return ordered[arrow.Date32](op, l.(*array.Date32), r.(*array.Date32), mem)
+	case arrow.DATE64:
+		return ordered[arrow.Date64](op, l.(*array.Date64), r.(*array.Date64), mem)
+	case arrow.TIME32:
+		return ordered[arrow.Time32](op, l.(*array.Time32), r.(*array.Time32), mem)
+	case arrow.TIME64:
+		return ordered[arrow.Time64](op, l.(*array.Time64), r.(*array.Time64), mem)
+	case arrow.DURATION:
+		return ordered[arrow.Duration](op, l.(*array.Duration), r.(*array.Duration), mem)
 	default:
-		return nil, fmt.Errorf("compute.compare: type %s not supported", l.DataType())
+		return nil, errNoBinaryKernel
+	}
+}
+
+// bytesValue is the structural shape of the binary array types, which expose
+// Value as a []byte rather than a comparable element. bytesCompare adapts them
+// to the ordered comparison path via lexicographic byte ordering.
+type bytesValue interface {
+	Len() int
+	IsNull(i int) bool
+	Value(i int) []byte
+}
+
+// bytesCompare applies a comparison op to two binary arrays using lexicographic
+// byte ordering, propagating nulls.
+func bytesCompare(op expr.BinaryOp, l, r bytesValue, mem memory.Allocator) (arrow.Array, error) {
+	fn := bytesOp(op)
+	if fn == nil {
+		return nil, fmt.Errorf("compute.compare: op %s not supported on binary", op)
+	}
+	if l.Len() != r.Len() {
+		return nil, fmt.Errorf("compute.compare: length mismatch (%d vs %d)", l.Len(), r.Len())
+	}
+	n := l.Len()
+	b := array.NewBooleanBuilder(mem)
+	defer b.Release()
+	b.Reserve(n)
+	for i := 0; i < n; i++ {
+		if l.IsNull(i) || r.IsNull(i) {
+			b.AppendNull()
+			continue
+		}
+		b.Append(fn(bytes.Compare(l.Value(i), r.Value(i))))
+	}
+	return b.NewArray(), nil
+}
+
+// bytesOp maps an operator onto the sign of bytes.Compare.
+func bytesOp(op expr.BinaryOp) func(cmp int) bool {
+	switch op {
+	case expr.BinaryOpEq:
+		return func(c int) bool { return c == 0 }
+	case expr.BinaryOpNeq:
+		return func(c int) bool { return c != 0 }
+	case expr.BinaryOpLt:
+		return func(c int) bool { return c < 0 }
+	case expr.BinaryOpLte:
+		return func(c int) bool { return c <= 0 }
+	case expr.BinaryOpGt:
+		return func(c int) bool { return c > 0 }
+	case expr.BinaryOpGte:
+		return func(c int) bool { return c >= 0 }
+	default:
+		return nil
 	}
 }
 
@@ -294,9 +392,40 @@ func evalLiteral(lit expr.LiteralNode, n int, mem memory.Allocator) (arrow.Array
 			return nil, err
 		}
 		return broadcast[bool](array.NewBooleanBuilder(mem), v, n), nil
+	case arrow.TIMESTAMP:
+		v, err := litTimestamp(lit.Value)
+		if err != nil {
+			return nil, err
+		}
+		return broadcastTimestamp(lit.Type.(*arrow.TimestampType), v, n, mem), nil
 	default:
-		return nil, fmt.Errorf("compute.Eval: literal broadcast for %s not yet implemented", lit.Type)
+		return nil, fmt.Errorf("compute.Eval: literal broadcast for %s not supported", lit.Type)
 	}
+}
+
+// litTimestamp accepts either a pre-converted arrow.Timestamp or a time.Time.
+// A time.Time is interpreted against the literal type's unit by the caller via
+// broadcastTimestamp; here we only normalize to arrow.Timestamp when already
+// boxed.
+func litTimestamp(v any) (arrow.Timestamp, error) {
+	switch x := v.(type) {
+	case arrow.Timestamp:
+		return x, nil
+	default:
+		return 0, fmt.Errorf("compute.Eval: expected timestamp literal, got %T", v)
+	}
+}
+
+// broadcastTimestamp materializes n copies of v as a Timestamp array carrying
+// the literal's unit and timezone.
+func broadcastTimestamp(t *arrow.TimestampType, v arrow.Timestamp, n int, mem memory.Allocator) arrow.Array {
+	b := array.NewTimestampBuilder(mem, t)
+	defer b.Release()
+	b.Reserve(n)
+	for i := 0; i < n; i++ {
+		b.Append(v)
+	}
+	return b.NewArray()
 }
 
 // litAs is the strict converter: the Go value must already be of type T.
