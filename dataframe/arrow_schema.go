@@ -10,50 +10,6 @@ import (
 	"github.com/karthedew/cosma/schema"
 )
 
-func arrowSchemaFromSchema(s *schema.Schema) (*arrow.Schema, error) {
-	if s == nil {
-		return nil, fmt.Errorf("schema is nil")
-	}
-
-	fields := s.Fields()
-	arrowFields := make([]arrow.Field, len(fields))
-	for i, field := range fields {
-		if field.ArrowType == nil {
-			return nil, fmt.Errorf("schema field %q has nil arrow type", field.Name)
-		}
-		arrowFields[i] = arrow.Field{
-			Name:     field.Name,
-			Type:     field.ArrowType,
-			Nullable: field.Nullable,
-		}
-	}
-
-	return arrow.NewSchema(arrowFields, nil), nil
-}
-
-func schemaFromArrow(s *arrow.Schema) (*schema.Schema, error) {
-	if s == nil {
-		return nil, fmt.Errorf("arrow schema is nil")
-	}
-
-	fields := s.Fields()
-	cosmaFields := make([]schema.Field, len(fields))
-	for i, field := range fields {
-		dtype, err := schemaDTypeFromArrow(field.Type)
-		if err != nil {
-			return nil, fmt.Errorf("schema field %q dtype: %w", field.Name, err)
-		}
-		cosmaFields[i] = schema.Field{
-			Name:      field.Name,
-			Type:      dtype,
-			Nullable:  field.Nullable,
-			ArrowType: field.Type,
-		}
-	}
-
-	return schema.New(cosmaFields...), nil
-}
-
 type RecordBatchOptions struct {
 	AllowNullable bool
 }
@@ -70,7 +26,7 @@ func FromRecordBatchesWithOptions(arrSchema *arrow.Schema, records []arrow.Recor
 		arrSchema = records[0].Schema()
 	}
 
-	cosmaSchema, err := schemaFromArrow(arrSchema)
+	cosmaSchema, err := schema.FromArrow(arrSchema)
 	if err != nil {
 		return nil, err
 	}

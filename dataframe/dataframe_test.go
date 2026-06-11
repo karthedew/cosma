@@ -21,11 +21,11 @@ func TestNewDataFrameSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if df.Height() != 3 {
-		t.Fatalf("Height = %d, want 3", df.Height())
+	if df.NumRows() != 3 {
+		t.Fatalf("NumRows = %d, want 3", df.NumRows())
 	}
-	if df.Width() != 2 {
-		t.Fatalf("Width = %d, want 2", df.Width())
+	if df.NumCols() != 2 {
+		t.Fatalf("NumCols = %d, want 2", df.NumCols())
 	}
 
 	col, ok := df.Column("names")

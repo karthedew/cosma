@@ -154,8 +154,8 @@ func assertDataFrameEqual(t *testing.T, left, right *DataFrame) {
 		}
 	}
 
-	if left.Height() != right.Height() {
-		t.Fatalf("height mismatch: %d != %d", left.Height(), right.Height())
+	if left.NumRows() != right.NumRows() {
+		t.Fatalf("height mismatch: %d != %d", left.NumRows(), right.NumRows())
 	}
 
 	for _, field := range leftSchema {

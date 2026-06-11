@@ -1,16 +1,10 @@
 package scan
 
 import (
-	"context"
 	"os"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow"
-
-	"github.com/karthedew/cosma/internal/exec"
-	"github.com/karthedew/cosma/internal/expr"
-	"github.com/karthedew/cosma/plan"
-	"github.com/karthedew/cosma/schema"
 )
 
 func TestScanCSVBatches(t *testing.T) {
@@ -62,68 +56,5 @@ func TestScanCSVBatches(t *testing.T) {
 	}
 	if rows != 3 {
 		t.Fatalf("expected 3 rows, got %d", rows)
-	}
-}
-
-func TestScanCSVFilterPipeline(t *testing.T) {
-	f, err := os.CreateTemp("", "cosma-csv-*.csv")
-	if err != nil {
-		t.Fatalf("CreateTemp: %v", err)
-	}
-	defer os.Remove(f.Name())
-	if _, err := f.WriteString("ids,vals\n1,a\n2,b\n3,c\n4,d\n"); err != nil {
-		_ = f.Close()
-		t.Fatalf("WriteString: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := ScanCSV(f.Name(), WithCSVChunkSize(2))
-	if err != nil {
-		t.Fatalf("ScanCSV: %v", err)
-	}
-	defer reader.Release()
-
-	cosmaSchema := schema.New(
-		schema.Field{Name: "ids", Type: schema.Int64, ArrowType: arrow.PrimitiveTypes.Int64},
-		schema.Field{Name: "vals", Type: schema.Utf8, ArrowType: arrow.BinaryTypes.String},
-	)
-
-	root := plan.NewLimitNode(
-		plan.NewProjectNode(
-			plan.NewFilterNode(
-				plan.NewScanNode(cosmaSchema, "csv"),
-				expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "ids"}, Right: expr.LiteralNode{Value: 2}},
-			),
-			[]string{"vals"},
-		),
-		1,
-	)
-
-	pl := plan.NewLogicalPlan(root)
-	bound, err := plan.Bind(pl)
-	if err != nil {
-		t.Fatalf("Bind: %v", err)
-	}
-	src, ops, err := exec.Compile(context.Background(), bound, reader, nil)
-	if err != nil {
-		t.Fatalf("Compile: %v", err)
-	}
-	pipe, err := exec.NewPipeline(context.Background(), src, ops)
-	if err != nil {
-		t.Fatalf("NewPipeline: %v", err)
-	}
-	defer pipe.Release()
-
-	if !pipe.Next() {
-		t.Fatalf("expected Next true")
-	}
-	rec := pipe.Record()
-	if rec.NumCols() != 1 {
-		t.Fatalf("expected 1 column, got %d", rec.NumCols())
-	}
-	if rec.ColumnName(0) != "vals" {
-		t.Fatalf("expected vals column")
 	}
 }

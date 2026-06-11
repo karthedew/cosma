@@ -9,6 +9,8 @@ import (
 	"github.com/apache/arrow/go/v18/parquet"
 	"github.com/apache/arrow/go/v18/parquet/file"
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
+
+	"github.com/karthedew/cosma/internal/ingest"
 )
 
 type CSVOptions struct {
@@ -191,41 +193,31 @@ func applyParquetOptions(options []ParquetOption) ParquetOptions {
 	return cfg
 }
 
-func csvReaderOptions(cfg CSVOptions) []csv.Option {
-	options := []csv.Option{csv.WithHeader(cfg.HasHeader)}
-	if cfg.ChunkSize > 0 {
-		options = append(options, csv.WithChunk(cfg.ChunkSize))
+// ingestConfig projects the read-relevant CSV options onto the shared ingestion
+// seam. Write-only options (UseCRLF, BoolWriter, NullValue) and the
+// materialization concern AllowNullable are intentionally excluded.
+func (cfg CSVOptions) ingestConfig() ingest.CSVConfig {
+	return ingest.CSVConfig{
+		HasHeader:       cfg.HasHeader,
+		ChunkSize:       cfg.ChunkSize,
+		NullValues:      cfg.NullValues,
+		ColumnTypes:     cfg.ColumnTypes,
+		IncludeColumns:  cfg.IncludeColumns,
+		Comma:           cfg.Comma,
+		Comment:         cfg.Comment,
+		LazyQuotes:      cfg.LazyQuotes,
+		StringsReplacer: cfg.StringsReplacer,
 	}
-	if len(cfg.NullValues) > 0 {
-		options = append(options, csv.WithNullReader(true, cfg.NullValues...))
-	} else {
-		options = append(options, csv.WithNullReader(true))
+}
+
+// ingestConfig projects the read-relevant Parquet options onto the shared
+// ingestion seam. Write-only options are intentionally excluded.
+func (cfg ParquetOptions) ingestConfig() ingest.ParquetConfig {
+	return ingest.ParquetConfig{
+		Allocator:      cfg.Allocator,
+		ReadOptions:    cfg.ReadOptions,
+		ArrowReadProps: cfg.ArrowReadProps,
 	}
-	if cfg.ColumnTypes != nil {
-		options = append(options, csv.WithColumnTypes(cfg.ColumnTypes))
-	}
-	if len(cfg.IncludeColumns) > 0 {
-		options = append(options, csv.WithIncludeColumns(cfg.IncludeColumns))
-	}
-	if cfg.Comma != 0 {
-		options = append(options, csv.WithComma(cfg.Comma))
-	}
-	if cfg.Comment != 0 {
-		options = append(options, csv.WithComment(cfg.Comment))
-	}
-	if cfg.LazyQuotes {
-		options = append(options, csv.WithLazyQuotes(cfg.LazyQuotes))
-	}
-	if cfg.StringsReplacer != nil {
-		options = append(options, csv.WithStringsReplacer(cfg.StringsReplacer))
-	}
-	if cfg.UseCRLF {
-		options = append(options, csv.WithCRLF(cfg.UseCRLF))
-	}
-	if cfg.BoolWriter != nil {
-		options = append(options, csv.WithBoolWriter(cfg.BoolWriter))
-	}
-	return options
 }
 
 func csvWriterOptions(cfg CSVOptions) []csv.Option {

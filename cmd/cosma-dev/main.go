@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/karthedew/cosma/compute"
+	"github.com/apache/arrow/go/v18/arrow/array"
+
 	"github.com/karthedew/cosma/dataframe"
-	"github.com/karthedew/cosma/internal/expr"
 )
 
 func main() {
@@ -77,17 +77,35 @@ func main() {
 		panic(err)
 	}
 
-	// fmt.Println(df)
-
-	keys := []expr.Expr{
-		expr.LiteralNode{Value: "col1"}, // placeholder name for now
-	}
-	aggs := []expr.Expr{
-		expr.LiteralNode{Value: 1},
-		expr.LiteralNode{Value: 1},
-	}
-	_, err = compute.GroupBy(df, keys, aggs)
+	// Group by category and aggregate the nutrition columns.
+	out, err := df.GroupBy("category").Agg(
+		dataframe.Count("calories").As("items"),
+		dataframe.Sum("calories").As("total_calories"),
+		dataframe.Mean("calories").As("avg_calories"),
+		dataframe.Max("sugars_g").As("max_sugars"),
+	)
 	if err != nil {
-		// expected if your stub returns an error after printing
+		panic(err)
 	}
+
+	fmt.Printf("grouped: %v (%d rows)\n", out.Columns(), out.NumRows())
+	for _, cat := range stringColumn(out, "category") {
+		fmt.Println(" -", cat)
+	}
+}
+
+// stringColumn collects a string column's values for display.
+func stringColumn(df *dataframe.DataFrame, name string) []string {
+	col, ok := df.Column(name)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, chunk := range col.Chunked().Chunks() {
+		arr := chunk.(*array.String)
+		for i := 0; i < arr.Len(); i++ {
+			out = append(out, arr.Value(i))
+		}
+	}
+	return out
 }

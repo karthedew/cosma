@@ -8,6 +8,8 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/memory"
 	"github.com/apache/arrow/go/v18/parquet/file"
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
+
+	"github.com/karthedew/cosma/internal/ingest"
 )
 
 type CSVOptions struct {
@@ -137,5 +139,29 @@ func WithParquetParallel(value bool) ParquetOption {
 func WithParquetContext(ctx context.Context) ParquetOption {
 	return func(cfg *ParquetOptions) {
 		cfg.Context = ctx
+	}
+}
+
+func (o CSVOptions) toIngest() ingest.CSVConfig {
+	return ingest.CSVConfig{
+		HasHeader:       o.HasHeader,
+		ChunkSize:       o.ChunkSize,
+		NullValues:      o.NullValues,
+		ColumnTypes:     o.ColumnTypes,
+		IncludeColumns:  o.IncludeColumns,
+		Comma:           o.Comma,
+		Comment:         o.Comment,
+		LazyQuotes:      o.LazyQuotes,
+		StringsReplacer: o.StringsReplacer,
+		Allocator:       o.Allocator,
+	}
+}
+
+func (o ParquetOptions) toIngest() ingest.ParquetConfig {
+	return ingest.ParquetConfig{
+		Allocator:      o.Allocator,
+		ReadOptions:    o.ReadOptions,
+		ArrowReadProps: o.ArrowReadProps,
+		Context:        o.Context,
 	}
 }

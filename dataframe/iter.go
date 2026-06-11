@@ -5,15 +5,20 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/array"
+
+	"github.com/karthedew/cosma/schema"
 )
 
-// RecordBatchIter yields Arrow Records (RecordBatches) from a DataFrame.
-// Polars often aligns by chunk index; you can do the same.
+// RecordBatchIter yields Arrow record batches from a DataFrame, one per segment
+// of the canonical chunk layout (see DataFrame.ChunkSizes). Each segment lies
+// within a single chunk of every column, so columns with differing chunk
+// boundaries are materialized by zero-copy slicing rather than rejected.
 type RecordBatchIter struct {
-	df        *DataFrame
-	chunkIdx  int
-	maxChunks int
-	schema    *arrow.Schema
+	df      *DataFrame
+	schema  *arrow.Schema
+	offsets []int64   // canonical segment boundaries; len == numSegments+1
+	colCum  [][]int64 // per-column cumulative chunk offsets
+	segIdx  int
 }
 
 func NewRecordBatchIter(df *DataFrame) (*RecordBatchIter, error) {
@@ -21,31 +26,32 @@ func NewRecordBatchIter(df *DataFrame) (*RecordBatchIter, error) {
 }
 
 func NewRecordBatchIterWithSchema(df *DataFrame, arrSchema *arrow.Schema) (*RecordBatchIter, error) {
-	// Minimal stub: assumes all series columns have the same number of chunks
-	// and ignores scalar columns.
-	// TODO: support scalars (materialize) and misaligned chunks (slice by row range).
 	if df == nil {
 		return nil, fmt.Errorf("df is nil")
 	}
 	if arrSchema == nil {
 		var err error
-		arrSchema, err = arrowSchemaFromSchema(df.schema)
+		arrSchema, err = schema.ToArrow(df.schema)
 		if err != nil {
 			return nil, fmt.Errorf("arrow schema: %w", err)
 		}
 	}
 
-	// Find max chunks across series
-	max := 0
-	for _, c := range df.cols {
-		chunked := c.Chunked()
-		if chunked != nil {
-			if n := len(chunked.Chunks()); n > max {
-				max = n
-			}
+	colCum := make([][]int64, len(df.cols))
+	for i := range df.cols {
+		chunked := df.cols[i].Chunked()
+		if chunked == nil {
+			return nil, fmt.Errorf("column %q has no data", df.cols[i].Name())
 		}
+		colCum[i] = columnOffsets(chunked)
 	}
-	return &RecordBatchIter{df: df, chunkIdx: 0, maxChunks: max, schema: arrSchema}, nil
+
+	return &RecordBatchIter{
+		df:      df,
+		schema:  arrSchema,
+		offsets: df.chunkOffsets(),
+		colCum:  colCum,
+	}, nil
 }
 
 func (it *RecordBatchIter) Schema() *arrow.Schema {
@@ -56,42 +62,43 @@ func (it *RecordBatchIter) Schema() *arrow.Schema {
 }
 
 func (it *RecordBatchIter) Next() (arrow.Record, bool, error) {
-	if it.chunkIdx >= it.maxChunks {
+	if it == nil || it.segIdx >= len(it.offsets)-1 {
 		return nil, false, nil
 	}
 
+	lo := it.offsets[it.segIdx]
+	hi := it.offsets[it.segIdx+1]
+
 	fields := it.df.schema.Fields()
 	arrs := make([]arrow.Array, len(fields))
-	var rows int64 = -1
-
 	for i := range fields {
-		col := it.df.cols[i]
-		chunked := col.Chunked()
-		if chunked == nil {
-			// TODO: handle missing chunked column
-			arrs[i] = nil
-			continue
+		arr, err := sliceColumnRange(it.df.cols[i].Chunked().Chunks(), it.colCum[i], lo, hi)
+		if err != nil {
+			return nil, false, fmt.Errorf("column %q: %w", fields[i].Name, err)
 		}
-
-		chunks := chunked.Chunks()
-		if it.chunkIdx >= len(chunks) {
-			return nil, false, fmt.Errorf("column %q has fewer chunks (%d) than expected (%d)", fields[i].Name, len(chunks), it.maxChunks)
-		}
-		arrs[i] = chunks[it.chunkIdx]
-		if arrs[i] == nil {
-			return nil, false, fmt.Errorf("column %q chunk %d is nil", fields[i].Name, it.chunkIdx)
-		}
-		if rows == -1 {
-			rows = int64(arrs[i].Len())
-		} else if int64(arrs[i].Len()) != rows {
-			return nil, false, fmt.Errorf("column %q chunk %d len=%d != %d", fields[i].Name, it.chunkIdx, arrs[i].Len(), rows)
-		}
+		arrs[i] = arr
 	}
 
-	it.chunkIdx++
-	if rows < 0 {
-		rows = 0
+	rec := array.NewRecord(it.schema, arrs, hi-lo)
+	// NewRecord retains each column, so release the slices we created.
+	for _, a := range arrs {
+		a.Release()
 	}
-	rec := array.NewRecord(it.schema, arrs, rows)
+	it.segIdx++
 	return rec, true, nil
+}
+
+// sliceColumnRange returns the rows [lo, hi) of a column as a single array. The
+// canonical layout guarantees the range lies within one chunk, so this is a
+// zero-copy slice. cum holds the column's cumulative chunk offsets.
+func sliceColumnRange(chunks []arrow.Array, cum []int64, lo, hi int64) (arrow.Array, error) {
+	for c := 0; c < len(chunks); c++ {
+		if cum[c] == cum[c+1] {
+			continue // skip empty chunk
+		}
+		if lo >= cum[c] && hi <= cum[c+1] {
+			return array.NewSlice(chunks[c], lo-cum[c], hi-cum[c]), nil
+		}
+	}
+	return nil, fmt.Errorf("range [%d,%d) not contained in a single chunk", lo, hi)
 }

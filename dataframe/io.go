@@ -1,48 +1,50 @@
 package dataframe
 
 import (
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/csv"
 	"github.com/apache/arrow/go/v18/parquet"
-	"github.com/apache/arrow/go/v18/parquet/file"
 	"github.com/apache/arrow/go/v18/parquet/pqarrow"
+
+	"github.com/karthedew/cosma/internal/ingest"
+	"github.com/karthedew/cosma/schema"
 )
 
 func ReadCSV(path string, opts ...CSVOption) (*DataFrame, error) {
-	if path == "" {
-		return nil, fmt.Errorf("csv path is empty")
-	}
-
 	cfg := applyCSVOptions(opts)
-
-	f, err := os.Open(path)
+	reader, err := ingest.CSV(path, cfg.ingestConfig())
 	if err != nil {
-		return nil, fmt.Errorf("open csv: %w", err)
+		return nil, err
 	}
-	defer f.Close()
+	return collectReader(reader, cfg.AllowNullable)
+}
 
-	reader := csv.NewInferringReader(f, csvReaderOptions(cfg)...)
+// collectReader drains a RecordReader into an eager DataFrame, retaining each
+// batch and releasing the reader (and its source) when done. It is the single
+// eager sink shared by every ReadX entry point.
+func collectReader(reader array.RecordReader, allowNullable bool) (*DataFrame, error) {
 	defer reader.Release()
 
 	records := make([]arrow.Record, 0, 8)
 	for reader.Next() {
 		rec := reader.Record()
 		if rec == nil {
-			return nil, fmt.Errorf("csv record is nil")
+			releaseRecords(records)
+			return nil, fmt.Errorf("record batch is nil")
 		}
 		rec.Retain()
 		records = append(records, rec)
 	}
 	if err := reader.Err(); err != nil {
 		releaseRecords(records)
-		return nil, fmt.Errorf("read csv: %w", err)
+		return nil, err
 	}
 
-	df, err := FromRecordBatchesWithOptions(reader.Schema(), records, RecordBatchOptions{AllowNullable: cfg.AllowNullable})
+	df, err := FromRecordBatchesWithOptions(reader.Schema(), records, RecordBatchOptions{AllowNullable: allowNullable})
 	releaseRecords(records)
 	if err != nil {
 		return nil, err
@@ -70,7 +72,7 @@ func WriteCSV(df *DataFrame, path string, opts ...CSVOption) error {
 	if cfg.AllowNullable {
 		schemaForWrite = schemaWithNullable(schemaForWrite)
 	}
-	arrSchema, err := arrowSchemaFromSchema(schemaForWrite)
+	arrSchema, err := schema.ToArrow(schemaForWrite)
 	if err != nil {
 		return fmt.Errorf("arrow schema: %w", err)
 	}
@@ -106,33 +108,12 @@ func WriteCSV(df *DataFrame, path string, opts ...CSVOption) error {
 }
 
 func ReadParquet(path string, opts ...ParquetOption) (*DataFrame, error) {
-	if path == "" {
-		return nil, fmt.Errorf("parquet path is empty")
-	}
-
 	cfg := applyParquetOptions(opts)
-
-	reader, err := file.OpenParquetFile(path, false, cfg.ReadOptions...)
+	reader, err := ingest.Parquet(path, cfg.ingestConfig())
 	if err != nil {
-		return nil, fmt.Errorf("open parquet: %w", err)
+		return nil, err
 	}
-	defer reader.Close()
-
-	props := pqarrow.ArrowReadProperties{}
-	if cfg.ArrowReadProps != nil {
-		props = *cfg.ArrowReadProps
-	}
-	fr, err := pqarrow.NewFileReader(reader, props, cfg.Allocator)
-	if err != nil {
-		return nil, fmt.Errorf("parquet reader: %w", err)
-	}
-
-	table, err := fr.ReadTable(context.Background())
-	if err != nil {
-		return nil, fmt.Errorf("read parquet: %w", err)
-	}
-
-	return dataFrameFromTable(table, cfg.AllowNullable)
+	return collectReader(reader, cfg.AllowNullable)
 }
 
 func WriteParquet(df *DataFrame, path string, opts ...ParquetOption) error {
@@ -155,7 +136,7 @@ func WriteParquet(df *DataFrame, path string, opts ...ParquetOption) error {
 	if cfg.AllowNullable {
 		schemaForWrite = schemaWithNullable(schemaForWrite)
 	}
-	arrSchema, err := arrowSchemaFromSchema(schemaForWrite)
+	arrSchema, err := schema.ToArrow(schemaForWrite)
 	if err != nil {
 		return fmt.Errorf("arrow schema: %w", err)
 	}
@@ -197,38 +178,6 @@ func WriteParquet(df *DataFrame, path string, opts ...ParquetOption) error {
 		return fmt.Errorf("close parquet writer: %w", err)
 	}
 	return nil
-}
-
-func dataFrameFromTable(table arrow.Table, allowNullable bool) (*DataFrame, error) {
-	if table == nil {
-		return nil, fmt.Errorf("table is nil")
-	}
-	defer table.Release()
-
-	arrSchema := table.Schema()
-	cosmaSchema, err := schemaFromArrow(arrSchema)
-	if err != nil {
-		return nil, err
-	}
-	if allowNullable {
-		cosmaSchema = schemaWithNullable(cosmaSchema)
-	}
-
-	cols := make([]Series, int(table.NumCols()))
-	for i := 0; i < int(table.NumCols()); i++ {
-		col := table.Column(i)
-		if col == nil {
-			return nil, fmt.Errorf("table column %d is nil", i)
-		}
-		chunked := col.Data()
-		if chunked == nil {
-			return nil, fmt.Errorf("table column %q chunked is nil", col.Name())
-		}
-		chunked.Retain()
-		cols[i] = *NewSeriesFromChunked(col.Name(), chunked)
-	}
-
-	return NewDataFrame(cosmaSchema, cols)
 }
 
 func releaseRecords(records []arrow.Record) {

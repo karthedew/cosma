@@ -24,7 +24,7 @@ func (df *DataFrame) String() string {
 		return "<nil>"
 	}
 	fields := df.schema.Fields()
-	rows := int(df.Height())
+	rows := int(df.NumRows())
 	cols := len(fields)
 
 	widths := make([]int, cols)
@@ -158,7 +158,7 @@ func seriesField(series *Series) schema.Field {
 	}
 	name := series.Name()
 	if dtype := series.DataType(); dtype != nil {
-		field, err := schemaFieldFromArrow(name, dtype)
+		field, err := schema.FieldFromArrow(name, dtype)
 		if err == nil {
 			return field
 		}
