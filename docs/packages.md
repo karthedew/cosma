@@ -3,15 +3,15 @@
 | Package | Audience | Stability | Notes |
 | --- | --- | --- | --- |
 | dataframe | Public | Evolving public API | Main user entry point |
+| expr | Public | Stable public API | Public expression AST and fluent builders (ADR 0004) |
 | scan | Public | Evolving public API | Streaming readers |
 | schema | Public | Evolving public API | Schema helpers/types |
 | plan | Public | Experimental public API | Logical planning surface |
 | compute | Public | Evolving public API | Numeric export/transform |
 | operator | Repo-visible | Unstable, not an extension API | May move/internalize later |
 | internal/exec | Internal | Internal only | Runtime/compiler/executor |
-| internal/expr | Internal | Internal only | Canonical expression engine |
+| internal/expr | Internal | Internal only | Binding/coercion helpers over the public expr tree |
 | internal/stream | Internal | Internal only | Reader adapters/stream glue |
-| expr | Deprecated | Legacy / remove | Replace with internal/expr |
 
 ## Public API Expectations
 
@@ -19,7 +19,10 @@ Cosma exposes a small set of public packages intended for end users. These
 packages are evolving and may change as the execution engine and expression
 system mature. The public API is centered on `dataframe` and `scan`, with
 `plan` providing an experimental planning surface and `compute` focused on
-numerical export and transformations.
+numerical export and transformations. The `expr` package exposes the public
+expression AST (node types, op constants, and fluent builders) used by
+`dataframe.Filter`, `WithColumn`, `GroupBy().Agg`, and `Sort`; per ADR 0004 the
+node types are a stable, inspectable, serializable contract.
 
 ## Internal Packages
 
@@ -31,5 +34,4 @@ packages can change freely while the engine evolves.
 
 The `operator` package is repo-visible but not a stable extension point. It may
 move under `internal/` once the execution model stabilizes or become a
-documented public extension surface later. The legacy `expr` package is
-deprecated and will be removed after migrations complete.
+documented public extension surface later.

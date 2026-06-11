@@ -7,7 +7,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 )
 
 // int64Record builds a one-column int64 record batch from vals.
@@ -28,7 +28,7 @@ func TestEvalCompareProducesMask(t *testing.T) {
 	rec := int64Record(t, "a", []int64{1, 2, 3, 4})
 	defer rec.Release()
 
-	mask, err := Eval(expr.Col("a").Gt(expr.Lit(int64(2))).Build(), rec, memory.DefaultAllocator)
+	mask, err := Eval(expr.Col("a").Gt(expr.Lit(int64(2))).Node, rec, memory.DefaultAllocator)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestFilterRecordSelectsRows(t *testing.T) {
 	rec := int64Record(t, "a", []int64{10, 20, 30})
 	defer rec.Release()
 
-	mask, err := Eval(expr.Col("a").Gte(expr.Lit(int64(20))).Build(), rec, memory.DefaultAllocator)
+	mask, err := Eval(expr.Col("a").Gte(expr.Lit(int64(20))).Node, rec, memory.DefaultAllocator)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestFilterRecordRejectsNonBoolMask(t *testing.T) {
 	defer rec.Release()
 
 	// A bare column evaluates to int64, not a boolean mask.
-	mask, err := Eval(expr.Col("a").Build(), rec, memory.DefaultAllocator)
+	mask, err := Eval(expr.Col("a").Node, rec, memory.DefaultAllocator)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}

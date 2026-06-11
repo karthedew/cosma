@@ -1,3 +1,7 @@
+// Package expr holds engine-internal binding and coercion helpers that operate
+// on the public cosma/expr tree. The user-facing AST, op types, and fluent
+// builders live in cosma/expr; only logic that is not part of the public
+// contract — literal type promotion against a bound schema — stays here.
 package expr
 
 import (
@@ -5,29 +9,30 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/schema"
 )
 
 // PromoteLiterals retypes default-inferred numeric literals so they match a
 // sibling column's resolved type within BinaryNode operands. It exists so
-// callers can write `Col("ids:int32").Gt(2)` without explicitly writing
-// `Int32(2)` — the literal `2` parses as a Go int, infers to Int64, and
-// without this pass would mismatch the int32 column at the kernel.
+// callers can write `Col("ids:int32").Gt(Lit(2))` without explicitly writing
+// Int32(2) — the literal 2 infers to Int64 and without this pass would mismatch
+// the int32 column at the kernel.
 //
 // The pass is conservative: it only retypes a LiteralNode when its sibling
-// resolves to a single, distinct numeric type via the schema. Lit-vs-Lit
-// and column-vs-column nodes are left alone — downstream type checking
-// surfaces those.
-func PromoteLiterals(e Expr, s *schema.Schema) (Expr, error) {
-	if e == nil {
+// resolves to a single, distinct numeric type via the schema. Lit-vs-Lit and
+// column-vs-column nodes are left alone — downstream type checking surfaces
+// those.
+func PromoteLiterals(e expr.Expr, s *schema.Schema) (expr.Expr, error) {
+	if e.Node == nil {
 		return e, nil
 	}
 	var firstErr error
-	out := Rewrite(e, func(node Expr) Expr {
+	out := expr.Rewrite(e.Node, func(node expr.ExprNode) expr.ExprNode {
 		if firstErr != nil {
 			return node
 		}
-		bn, ok := node.(BinaryNode)
+		bn, ok := node.(expr.BinaryNode)
 		if !ok {
 			return node
 		}
@@ -39,14 +44,14 @@ func PromoteLiterals(e Expr, s *schema.Schema) (Expr, error) {
 		return promoted
 	})
 	if firstErr != nil {
-		return nil, firstErr
+		return expr.Expr{}, firstErr
 	}
-	return out, nil
+	return expr.Expr{Node: out}, nil
 }
 
-func promoteSiblings(bn BinaryNode, s *schema.Schema) (BinaryNode, error) {
-	leftLit, leftIsLit := bn.Left.(LiteralNode)
-	rightLit, rightIsLit := bn.Right.(LiteralNode)
+func promoteSiblings(bn expr.BinaryNode, s *schema.Schema) (expr.BinaryNode, error) {
+	leftLit, leftIsLit := bn.Left.(expr.LiteralNode)
+	rightLit, rightIsLit := bn.Right.(expr.LiteralNode)
 
 	if leftIsLit && !rightIsLit {
 		target, err := bn.Right.DataType(s)
@@ -79,12 +84,11 @@ func promoteSiblings(bn BinaryNode, s *schema.Schema) (BinaryNode, error) {
 	return bn, nil
 }
 
-// promoteLiteralTo converts lit to target if target is numeric and the
-// literal's current Go value can be represented losslessly. Returns the
-// (possibly retyped) literal, an "ok" flag indicating whether a change
-// happened, and an error for impossible conversions (e.g. negative value
-// to unsigned).
-func promoteLiteralTo(lit LiteralNode, target arrow.DataType) (LiteralNode, bool, error) {
+// promoteLiteralTo converts lit to target if target is numeric and the literal's
+// current Go value can be represented losslessly. Returns the (possibly retyped)
+// literal, an "ok" flag indicating whether a change happened, and an error for
+// impossible conversions (e.g. negative value to unsigned).
+func promoteLiteralTo(lit expr.LiteralNode, target arrow.DataType) (expr.LiteralNode, bool, error) {
 	if target == nil {
 		return lit, false, nil
 	}
@@ -101,63 +105,76 @@ func promoteLiteralTo(lit LiteralNode, target arrow.DataType) (LiteralNode, bool
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: int8(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: int8(v), Type: target}, true, nil
 	case arrow.INT16:
 		v, err := toInt64(lit.Value)
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: int16(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: int16(v), Type: target}, true, nil
 	case arrow.INT32:
 		v, err := toInt64(lit.Value)
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: int32(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: int32(v), Type: target}, true, nil
 	case arrow.INT64:
 		v, err := toInt64(lit.Value)
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: v, Type: target}, true, nil
+		return expr.LiteralNode{Value: v, Type: target}, true, nil
 	case arrow.UINT8:
 		v, err := toUint64(lit.Value)
 		if err != nil {
 			return lit, false, err
 		}
-		return LiteralNode{Value: uint8(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: uint8(v), Type: target}, true, nil
 	case arrow.UINT16:
 		v, err := toUint64(lit.Value)
 		if err != nil {
 			return lit, false, err
 		}
-		return LiteralNode{Value: uint16(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: uint16(v), Type: target}, true, nil
 	case arrow.UINT32:
 		v, err := toUint64(lit.Value)
 		if err != nil {
 			return lit, false, err
 		}
-		return LiteralNode{Value: uint32(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: uint32(v), Type: target}, true, nil
 	case arrow.UINT64:
 		v, err := toUint64(lit.Value)
 		if err != nil {
 			return lit, false, err
 		}
-		return LiteralNode{Value: v, Type: target}, true, nil
+		return expr.LiteralNode{Value: v, Type: target}, true, nil
 	case arrow.FLOAT32:
 		v, err := toFloat64(lit.Value)
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: float32(v), Type: target}, true, nil
+		return expr.LiteralNode{Value: float32(v), Type: target}, true, nil
 	case arrow.FLOAT64:
 		v, err := toFloat64(lit.Value)
 		if err != nil {
 			return lit, false, nil
 		}
-		return LiteralNode{Value: v, Type: target}, true, nil
+		return expr.LiteralNode{Value: v, Type: target}, true, nil
 	}
 	return lit, false, nil
+}
+
+func isNumeric(dt arrow.DataType) bool {
+	if dt == nil {
+		return false
+	}
+	switch dt.ID() {
+	case arrow.INT8, arrow.INT16, arrow.INT32, arrow.INT64,
+		arrow.UINT8, arrow.UINT16, arrow.UINT32, arrow.UINT64,
+		arrow.FLOAT32, arrow.FLOAT64:
+		return true
+	}
+	return false
 }
 
 func toInt64(v any) (int64, error) {

@@ -1,7 +1,7 @@
 package plan
 
 import (
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/schema"
 )
 

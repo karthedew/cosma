@@ -6,23 +6,29 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/internal/compute"
-	"github.com/karthedew/cosma/internal/expr"
 )
 
-// WithColumn returns a new DataFrame with a column named name set to the result
-// of evaluating e over each row. If a column with that name already exists it is
-// replaced in place; otherwise the new column is appended. The receiver is
-// unchanged.
+// WithColumn returns a new DataFrame with a column derived from evaluating e
+// over each row. The output column name is taken, in order of precedence, from:
 //
-// e is evaluated one canonical chunk at a time and the per-segment results are
-// reassembled into a single chunked column aligned to the frame's height.
-func (df *DataFrame) WithColumn(name string, e expr.Expr) (*DataFrame, error) {
-	if name == "" {
-		return nil, fmt.Errorf("withcolumn: empty column name")
-	}
-	if e == nil {
+//   - an .As("name") alias on the expression, or
+//   - the single root column the expression references (replaced in place).
+//
+// If the expression references more than one column and carries no alias, an
+// error is returned directing the caller to add .As(). The receiver is
+// unchanged; e is evaluated one canonical chunk at a time and the per-segment
+// results are reassembled into a single chunked column aligned to the frame's
+// height.
+func (df *DataFrame) WithColumn(e expr.Expr) (*DataFrame, error) {
+	if e.Node == nil {
 		return nil, fmt.Errorf("withcolumn: nil expression")
+	}
+
+	name, err := outputColumnName(e)
+	if err != nil {
+		return nil, err
 	}
 
 	iter, err := NewRecordBatchIter(df)
@@ -48,7 +54,7 @@ func (df *DataFrame) WithColumn(name string, e expr.Expr) (*DataFrame, error) {
 		if !ok {
 			break
 		}
-		arr, err := compute.Eval(e, rec, mem)
+		arr, err := compute.Eval(e.Node, rec, mem)
 		rec.Release()
 		if err != nil {
 			release()
@@ -85,4 +91,35 @@ func (df *DataFrame) WithColumn(name string, e expr.Expr) (*DataFrame, error) {
 	}
 
 	return New(series)
+}
+
+// outputColumnName derives the result column name for WithColumn. An alias at
+// the root wins outright. Otherwise the expression must reference exactly one
+// distinct column, whose name is reused (in-place replacement). Zero or
+// multiple distinct columns without an alias is an error.
+func outputColumnName(e expr.Expr) (string, error) {
+	if alias, ok := e.Node.(expr.AliasNode); ok {
+		return alias.Name, nil
+	}
+
+	seen := make(map[string]struct{})
+	order := make([]string, 0, 1)
+	_ = expr.Walk(e.Node, func(node expr.ExprNode) error {
+		if c, ok := node.(expr.ColumnNode); ok {
+			if _, dup := seen[c.Name]; !dup {
+				seen[c.Name] = struct{}{}
+				order = append(order, c.Name)
+			}
+		}
+		return nil
+	})
+
+	switch len(order) {
+	case 1:
+		return order[0], nil
+	case 0:
+		return "", fmt.Errorf("withcolumn: expression references no column; add .As(name)")
+	default:
+		return "", fmt.Errorf("withcolumn: expression references multiple columns %v; add .As(name)", order)
+	}
 }

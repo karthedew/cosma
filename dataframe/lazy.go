@@ -3,7 +3,7 @@ package dataframe
 import (
 	"fmt"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/plan"
 )
 
@@ -24,7 +24,7 @@ func (lf *LazyFrame) Filter(predicate expr.Expr) *LazyFrame {
 	if lf.err != nil {
 		return lf
 	}
-	if predicate == nil {
+	if predicate.Node == nil {
 		lf.err = fmt.Errorf("filter predicate is nil")
 		return lf
 	}
