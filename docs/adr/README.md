@@ -5,6 +5,8 @@
 - 0001 Arrow Memory Model
 - 0002 Streaming Execution Boundary
 - 0003 Logical vs Physical Plan
+- 0004 Public Expression AST
+- 0005 N-Dimensional Array Package Named `carray`
 
 ## Add a New ADR
 

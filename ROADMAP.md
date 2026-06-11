@@ -1,13 +1,9 @@
 # Cosma Roadmap
 
-This roadmap focuses on shipping a fast, reliable, Arrow-native dataframe engine for Go.
+_Last updated: 2026-06-10_
 
-Current priorities:
-- Make eager dataframe workflows immediately useful.
-- Build lazy + streaming execution that can process datasets larger than memory.
-- Make performance a first-class concern, including parallel execution.
-- Integrate with ADBC drivers for database connectivity.
-- Integrate with Gonum for numerical computing handoff.
+This roadmap focuses on shipping a fast, reliable, Arrow-native dataframe engine
+for Go. It is ordered by what blocks users today, not by ambition.
 
 ## Guiding Principles
 
@@ -17,119 +13,184 @@ Current priorities:
 4. Parallel where it matters: partitioned, measurable speedups on CPU-bound operators.
 5. Small stable surface: ship thin, composable APIs and harden incrementally.
 
-## Phase 1 - Core Reliability and Eager UX
+## Where the code is today
 
-Goal: make the eager dataframe API trustworthy and useful for day-to-day use.
+Implemented and tested (full suite green under `go test -race ./...`):
 
-Focus:
-- DataFrame/Series memory lifecycle and ownership contract.
-- Predicate coercion safety and schema consistency rules.
-- Context propagation, cancellation, and error quality.
-- CSV/Parquet behavior parity and practical eager defaults.
-- CI hardening (`go test -race ./...`).
+- **Core:** chunked Arrow-native `DataFrame`/`Series`/`Column` with append/flush
+  lifecycle, rechunking (`Rechunk`, `RechunkToRows`, `RechunkIfNeeded`).
+- **Eager ops:** `Select`/`Drop`/`Rename`, `Limit`/`Head`, `Filter(expr)`,
+  `WithColumn(name, expr)`, `Sort(col, descending)` (stable, nulls-last),
+  `Sum`/`Count`/`Mean`/`Min`/`Max`, `GroupBy(keys...).Agg(...)`,
+  `Concat`/`HStack`.
+- **Compute kernels** (`internal/compute`): expression evaluation over record
+  batches (comparisons and `+ - * /` arithmetic), boolean-mask filter, single-pass
+  and grouped numeric reductions, stable argsort.
+- **Expressions** (`internal/expr`): fluent builder with typed literals,
+  comparisons, boolean ops, arithmetic, null checks, and aggregate markers.
+- **IO:** eager `ReadCSV`/`WriteCSV`/`ReadParquet`/`WriteParquet`; streaming
+  `scan.ScanCSV`/`scan.ScanParquet` with batching options; `RecordBatchIter`.
+- **Planning:** logical plan (Scan/Filter/Project/Limit) with schema-checked
+  `Bind` and `Explain`; `df.Lazy().Filter/Select/Limit().Plan()` builds plans
+  but **does not execute them** — `PhysicalPlan` is an empty skeleton.
 
-Deliverables:
-- Deterministic retain/release behavior and lifecycle docs.
-- Correct predicate binding for numeric literals (no lossy or overflow coercion).
-- Duplicate schema name policy enforced consistently.
-- Improved eager IO semantics and guardrails.
+Explicitly out of scope for v1 (revisit after Phase 5): SQL, window/rolling,
+pivot, distributed execution, custom memory manager, GPU.
 
-Exit criteria:
-- Core correctness and lifecycle tests are green.
-- No known high-severity correctness issues in eager paths.
-- CI includes race detection.
+## Phase 1 — Public Expression API _(highest priority — blocks all external users)_
 
-## Phase 2 - Useful Eager DataFrame Operations
+`df.Filter` and `df.WithColumn` take `internal/expr` types. Go forbids importing
+`internal/` packages from outside the module, so **no external user can call the
+expression-based API today**. Nothing else on this roadmap matters to users
+until this ships.
 
-Goal: provide practical, fast eager transformations that users expect.
+Features to implement:
 
-Focus:
-- Complete and optimize core eager operations (project/filter/limit/sort/select/add or replace column).
-- Implement missing compute functionality (project/filter/groupby/join) in incremental slices.
-- Strengthen expression support where needed for eager use.
+- A public `expr` (or `cosma`) package exposing the builder surface:
+  `Col`, `Lit`, typed literals, comparisons, `And`/`Or`/`Not`, arithmetic,
+  `IsNull`/`IsNotNull`, aggregate constructors, `.As(name)`.
+- Keep evaluation internal: the public package builds trees; kernels stay in
+  `internal/compute`.
+- Update `dataframe` signatures (`Filter`, `WithColumn`, `Lazy().Filter`,
+  `GroupBy().Agg`) to accept the public types.
+- Reconcile ADR 0002/0003 with the published surface; document the API with
+  runnable examples; fix README/docs references to the deleted public
+  `compute` package.
 
-Deliverables:
-- Stable eager operator behavior with conformance tests.
-- Benchmarks for key operations on representative datasets.
-- Clear API docs for eager workflows.
+Exit criteria: an external module can `go get` Cosma and run a
+filter/with-column/groupby pipeline using only public packages.
 
-Exit criteria:
-- Core eager operator suite is implemented and tested.
-- Baseline performance targets are documented and repeatable.
+## Phase 2 — Expression Engine Completeness
 
-## Phase 3 - Lazy Planning + Streaming Execution
+The builder accepts more than the engine can evaluate: `compute.Eval` handles
+only Column/Literal/Binary nodes, and only comparison + arithmetic binary ops.
+Everything else errors at runtime.
 
-Goal: support lazy queries executed over chunked streams, including datasets larger than memory.
+Features to implement:
 
-Focus:
-- Expand logical planning and binding.
-- Compile lazy plans into streaming pipelines.
-- Use chunked record processing end-to-end.
-- Avoid unnecessary full-table materialization in execution paths.
+- Boolean kernels: `And`/`Or` (Kleene null semantics, documented) and unary `Not`.
+- Unary kernels: `Neg`, `IsNull`, `IsNotNull`.
+- `Cast` and `Alias` node evaluation.
+- Type-agnostic `Count` (currently routed through numeric-only `Reduce`/
+  `GroupReduce`), plus `Min`/`Max` over strings and booleans.
+- Defined coercion rules for mixed-type comparisons/arithmetic (no lossy or
+  overflow coercion), with conformance tests per Arrow type.
+- Clear error messages naming the unsupported op and column type.
 
-Deliverables:
-- End-to-end lazy API path (`Lazy() ... Plan()`) into streaming execution.
-- Chunked DataFrame and stream interoperability with predictable semantics.
-- Tests for memory-bounded behavior and cancellation on long scans.
+Exit criteria: every expression the public builder can construct either
+evaluates correctly or is rejected at bind time — never with a runtime
+"not yet implemented".
 
-Exit criteria:
-- Lazy plans execute correctly through streaming pipelines.
-- Large-data workflows run without requiring full in-memory materialization.
+## Phase 3 — Eager Completeness and Performance Baseline
 
-## Phase 4 - Parallel Execution Engine
+Features to implement:
 
-Goal: make Cosma lightning fast on multi-core workloads.
+- **Joins:** eager `df.Join(other, on, how)` for inner and left joins (hash
+  join over group-key machinery); semi/anti later.
+- **Sort improvements:** multi-column sort with per-key direction; replace the
+  boxed-value row reorder in `Sort` with a typed take/gather kernel
+  (`compute.Take(chunked, indices)`); nulls-first option.
+- **Take/gather kernel:** shared by sort, join, and future shuffles.
+- **Benchmarks:** there are currently none. Add `go test -bench` suites for
+  filter, sort, groupby, join, and CSV/Parquet scan on representative datasets;
+  record baselines in `docs/` so regressions are visible.
+- **Context propagation:** plumb `context.Context` through long-running eager
+  paths (IO already accepts it for Parquet; extend to compute-heavy ops).
 
-Focus:
-- Partitioned scan and operator execution.
-- Parallel implementations for filter/project/map/groupby/join where applicable.
-- Merge/reduce stages with deterministic output semantics.
-- Profiling-driven optimization and allocator tuning.
+Exit criteria: the eager operator suite covers the common
+select/filter/derive/sort/groupby/join workflow, and baseline performance
+numbers are documented and repeatable.
 
-Deliverables:
-- Configurable execution parallelism.
-- Operator-level metrics/benchmarks and profiling workflow.
-- Documented performance characteristics by workload shape.
+## Phase 4 — Lazy Execution
 
-Exit criteria:
-- Demonstrated speedups versus single-thread baseline on benchmark suite.
-- Parallel execution remains correct and race-free.
+`Lazy()` builds logical plans that nothing can run. Make the lazy API real.
 
-## Phase 5 - ADBC Connectivity
+Features to implement:
 
-Goal: connect Cosma to ADBC-compliant data sources with Arrow-native transfer.
+- `LazyFrame.Collect(ctx)` — compile the bound logical plan onto
+  `internal/compute` kernels (not a revived exec stack) and return a
+  `*DataFrame`.
+- Physical plan: real operator nodes replacing the current empty
+  `PhysicalNode` skeleton, with a logical→physical lowering step.
+- Lazy coverage parity: `WithColumn`, `Sort`, `GroupBy().Agg`, `Join` as plan
+  nodes, not just Filter/Select/Limit.
+- Basic optimizer rules: projection pushdown, predicate pushdown into scans
+  (wire into `scan` include-columns and row-group filtering for Parquet),
+  limit pushdown.
+- `Explain` output for both logical and optimized physical plans.
 
-Focus:
-- ADBC reader adapters to produce Arrow record batches/streams.
-- Schema mapping and null semantics alignment.
-- Error and retry handling for connector boundaries.
+Exit criteria: `df.Lazy()...Collect()` produces results identical to the eager
+path on a conformance suite, with pushdowns observable in `Explain`.
 
-Deliverables:
-- Initial ADBC connector support for at least one production-ready driver.
-- End-to-end examples of scan -> transform -> dataframe/stream output.
+## Phase 5 — Streaming Execution
 
-Exit criteria:
-- ADBC ingestion path is stable, tested, and documented.
+Goal: lazy plans over `scan` sources, processing datasets larger than memory.
 
-## Phase 6 - Gonum Integration
+Features to implement:
 
-Goal: make Cosma a strong data-prep layer for numerical workflows.
+- `scan.ScanCSV/ScanParquet` as lazy sources: `scan → plan → Collect()` without
+  materializing the full table (per ADR 0002 streaming boundary).
+- Streaming operator execution: filter/project/limit applied per record batch
+  as it arrives; pipeline-breaking ops (sort, groupby, join) documented as
+  materializing with spill-awareness deferred.
+- `CollectStream(ctx)` returning a record-batch iterator instead of a
+  DataFrame.
+- Cancellation and memory-bounded behavior tests on long scans.
 
-Focus:
-- Efficient conversion/export paths from dataframe/record batches to Gonum-friendly structures.
-- Deterministic column ordering and null handling policy for numerical export.
-- Benchmarks for conversion overhead and throughput.
+Exit criteria: a filter/project/limit pipeline over a Parquet file larger than
+available memory completes with bounded RSS and honors context cancellation.
 
-Deliverables:
-- Gonum integration helpers with clear constraints and examples.
-- Tests validating shape, ordering, and null semantics.
+## Phase 6 — Parallel Execution
 
-Exit criteria:
-- Users can reliably build numerical pipelines from Cosma into Gonum.
+Features to implement:
 
-## Ongoing Workstreams (Across All Phases)
+- Partitioned scan and per-chunk parallel kernels (filter/project/arithmetic
+  are embarrassingly parallel over chunks).
+- Two-phase parallel groupby (`GroupReduce` is already shaped for this) and
+  parallel hash join build/probe.
+- Merge/reduce stages with deterministic output ordering.
+- Configurable parallelism (default `GOMAXPROCS`), operator-level metrics,
+  and a documented profiling workflow.
 
-- Documentation accuracy and API examples.
-- Developer ergonomics and package stability.
-- Observability (errors, metrics hooks, profiling support).
-- Backward compatibility notes for pre-alpha users.
+Exit criteria: demonstrated speedups versus the single-thread baseline on the
+Phase 3 benchmark suite; everything stays green under `-race`.
+
+## Phase 7 — ADBC Connectivity
+
+Features to implement:
+
+- ADBC reader adapter producing Arrow record batches into the `internal/ingest`
+  seam (so databases look like any other scan source).
+- Schema mapping and null-semantics alignment; error/retry handling at the
+  connector boundary.
+- At least one production-ready driver (e.g. PostgreSQL or DuckDB) with an
+  end-to-end scan → transform → collect example.
+
+Exit criteria: ADBC ingestion is stable, tested, and documented.
+
+## Phase 8 — Gonum Integration
+
+Features to implement:
+
+- Export helpers from DataFrame/record batches to Gonum matrices/vectors with
+  deterministic column ordering.
+- Explicit null-handling policy for numerical export (error, drop, or fill —
+  caller's choice).
+- Conversion benchmarks and shape/ordering/null-semantics tests.
+
+Exit criteria: users can reliably build numerical pipelines from Cosma into
+Gonum.
+
+## Ongoing Workstreams
+
+- **Docs accuracy:** README still lists the removed public `compute` package;
+  keep `docs/architecture.md` and `docs/packages.md` in sync as the expression
+  API goes public.
+- **Repo hygiene:** `cmd/cosma-expr` is an uncommitted scratch binary that does
+  not compile (`go build ./...` fails at the repo root) — fix or remove so the
+  module always builds clean.
+- **Memory ownership:** keep retain/release contracts documented and audited
+  as new kernels land (see `docs/pr-plans/` pr5/pr6).
+- **Observability:** error quality, metrics hooks, profiling support.
+- **Compatibility:** backward-compatibility notes for pre-alpha users on every
+  surface change.
