@@ -1,7 +1,7 @@
 // Package compute holds the chunk-level Arrow kernels that back Cosma's eager
 // DataFrame operations: expression evaluation, filtering, and (in time)
 // arithmetic, aggregation, and hashing. It depends only on Arrow and the
-// internal expression tree — never on the dataframe package — so eager
+// public expression tree — never on the dataframe package — so eager
 // operations call into it without an import cycle.
 package compute
 
@@ -13,7 +13,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 )
 
 // Eval evaluates an expression tree against a single record batch and returns
@@ -22,7 +22,7 @@ import (
 // Ownership: the caller owns the returned array and must Release it. rec and
 // its columns are not released. Every intermediate array allocated while
 // recursing into children is released before Eval returns.
-func Eval(e expr.Expr, rec arrow.Record, mem memory.Allocator) (arrow.Array, error) {
+func Eval(e expr.ExprNode, rec arrow.Record, mem memory.Allocator) (arrow.Array, error) {
 	if e == nil {
 		return nil, fmt.Errorf("compute.Eval: nil expression")
 	}
@@ -40,6 +40,8 @@ func Eval(e expr.Expr, rec arrow.Record, mem memory.Allocator) (arrow.Array, err
 		return evalLiteral(n, int(rec.NumRows()), mem)
 	case expr.BinaryNode:
 		return evalBinary(n, rec, mem)
+	case expr.AliasNode:
+		return Eval(n.Inner, rec, mem)
 	default:
 		return nil, fmt.Errorf("compute.Eval: unsupported node %T", e)
 	}

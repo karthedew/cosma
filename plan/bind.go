@@ -3,7 +3,7 @@ package plan
 import (
 	"fmt"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/schema"
 )
 
@@ -35,7 +35,7 @@ func bindNode(node LogicalNode) (LogicalNode, error) {
 		if n.Input == nil {
 			return nil, fmt.Errorf("filter input is nil")
 		}
-		if n.Predicate == nil {
+		if n.Predicate.Node == nil {
 			return nil, fmt.Errorf("filter predicate is nil")
 		}
 		input, err := bindNode(n.Input)
@@ -109,7 +109,7 @@ func bindNode(node LogicalNode) (LogicalNode, error) {
 
 func collectColumns(e expr.Expr) []string {
 	seen := make(map[string]struct{})
-	_ = expr.Walk(e, func(node expr.Expr) error {
+	_ = expr.Walk(e.Node, func(node expr.ExprNode) error {
 		if c, ok := node.(expr.ColumnNode); ok {
 			seen[c.Name] = struct{}{}
 		}

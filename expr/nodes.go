@@ -9,15 +9,28 @@ import (
 	"github.com/karthedew/cosma/schema"
 )
 
+// ExprNode is the interface implemented by every node in the public expression
+// tree. Unlike the previous internal design it carries no unexported marker:
+// the node types are a public, inspectable, serializable contract, so external
+// optimizer passes and deserializers may introduce their own implementations.
+//
+// Children returns this node's direct child nodes in evaluation order and may
+// return nil for leaves. DataType resolves the node's Arrow output type against
+// the input schema without evaluating it.
+type ExprNode interface {
+	String() string
+	Children() []ExprNode
+	DataType(s *schema.Schema) (arrow.DataType, error)
+}
+
 // ColumnNode references an input column by name. Its output type is resolved
 // against the schema at bind time.
 type ColumnNode struct {
 	Name string
 }
 
-func (c ColumnNode) String() string   { return c.Name }
-func (c ColumnNode) Children() []Expr { return nil }
-func (ColumnNode) exprNode()          {}
+func (c ColumnNode) String() string       { return c.Name }
+func (c ColumnNode) Children() []ExprNode { return nil }
 
 func (c ColumnNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	if s == nil {
@@ -47,8 +60,7 @@ func (l LiteralNode) String() string {
 	return fmt.Sprintf("%v", l.Value)
 }
 
-func (l LiteralNode) Children() []Expr { return nil }
-func (LiteralNode) exprNode()          {}
+func (l LiteralNode) Children() []ExprNode { return nil }
 
 func (l LiteralNode) DataType(_ *schema.Schema) (arrow.DataType, error) {
 	if l.Type != nil {
@@ -62,16 +74,15 @@ func (l LiteralNode) DataType(_ *schema.Schema) (arrow.DataType, error) {
 // arithmetic ops use promoteNumeric on the operand types.
 type BinaryNode struct {
 	Op    BinaryOp
-	Left  Expr
-	Right Expr
+	Left  ExprNode
+	Right ExprNode
 }
 
 func (b BinaryNode) String() string {
 	return fmt.Sprintf("(%s %s %s)", b.Left, b.Op, b.Right)
 }
 
-func (b BinaryNode) Children() []Expr { return []Expr{b.Left, b.Right} }
-func (BinaryNode) exprNode()          {}
+func (b BinaryNode) Children() []ExprNode { return []ExprNode{b.Left, b.Right} }
 
 func (b BinaryNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	if b.Left == nil || b.Right == nil {
@@ -129,12 +140,11 @@ func (b BinaryNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 // return bool; arithmetic negation preserves the operand type.
 type UnaryNode struct {
 	Op    UnaryOp
-	Inner Expr
+	Inner ExprNode
 }
 
-func (u UnaryNode) String() string   { return fmt.Sprintf("%s(%s)", u.Op, u.Inner) }
-func (u UnaryNode) Children() []Expr { return []Expr{u.Inner} }
-func (UnaryNode) exprNode()          {}
+func (u UnaryNode) String() string       { return fmt.Sprintf("%s(%s)", u.Op, u.Inner) }
+func (u UnaryNode) Children() []ExprNode { return []ExprNode{u.Inner} }
 
 func (u UnaryNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	if u.Inner == nil {
@@ -169,69 +179,12 @@ func (u UnaryNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	}
 }
 
-// AggNode is a column-level aggregation: input is one expression, output is
-// a single scalar value when reduced. Result types follow conventional rules
-// (count → int64, mean → float64, min/max → input type, sum → int64/float64).
-type AggNode struct {
-	Op    AggOp
-	Inner Expr
-}
-
-func (a AggNode) String() string   { return fmt.Sprintf("%s(%s)", a.Op, a.Inner) }
-func (a AggNode) Children() []Expr { return []Expr{a.Inner} }
-func (AggNode) exprNode()          {}
-
-func (a AggNode) DataType(s *schema.Schema) (arrow.DataType, error) {
-	if a.Inner == nil {
-		return nil, fmt.Errorf("agg node has nil operand")
-	}
-	switch a.Op {
-	case AggOpCount:
-		if _, err := a.Inner.DataType(s); err != nil {
-			return nil, err
-		}
-		return arrow.PrimitiveTypes.Int64, nil
-	case AggOpMean:
-		t, err := a.Inner.DataType(s)
-		if err != nil {
-			return nil, err
-		}
-		if !isNumeric(t) {
-			return nil, fmt.Errorf("mean requires numeric operand, got %s", typeName(t))
-		}
-		return arrow.PrimitiveTypes.Float64, nil
-	case AggOpSum:
-		t, err := a.Inner.DataType(s)
-		if err != nil {
-			return nil, err
-		}
-		if !isNumeric(t) {
-			return nil, fmt.Errorf("sum requires numeric operand, got %s", typeName(t))
-		}
-		if isFloat(t) {
-			return arrow.PrimitiveTypes.Float64, nil
-		}
-		if isUnsignedInt(t) {
-			return arrow.PrimitiveTypes.Uint64, nil
-		}
-		return arrow.PrimitiveTypes.Int64, nil
-	case AggOpMin, AggOpMax:
-		t, err := a.Inner.DataType(s)
-		if err != nil {
-			return nil, err
-		}
-		return t, nil
-	default:
-		return nil, fmt.Errorf("unsupported agg op %s", a.Op)
-	}
-}
-
-// AliasNode renames the result of Inner. The output type and value are
-// passed through unchanged; project operators are responsible for using
-// Name when assembling the output schema.
+// AliasNode renames the result of Inner. The output type and value are passed
+// through unchanged; project operators are responsible for using Name when
+// assembling the output schema.
 type AliasNode struct {
 	Name  string
-	Inner Expr
+	Inner ExprNode
 }
 
 func (a AliasNode) String() string {
@@ -241,8 +194,7 @@ func (a AliasNode) String() string {
 	return fmt.Sprintf("%s as %s", a.Inner, a.Name)
 }
 
-func (a AliasNode) Children() []Expr { return []Expr{a.Inner} }
-func (AliasNode) exprNode()          {}
+func (a AliasNode) Children() []ExprNode { return []ExprNode{a.Inner} }
 
 func (a AliasNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	if strings.TrimSpace(a.Name) == "" {
@@ -254,17 +206,16 @@ func (a AliasNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	return a.Inner.DataType(s)
 }
 
-// CastNode forces the output type of Inner to Type. Bind-time validation
-// only checks that the inner expression resolves; runtime evaluation must
-// verify the cast is supported and report failures.
+// CastNode forces the output type of Inner to Type. Bind-time validation only
+// checks that the inner expression resolves; runtime evaluation must verify the
+// cast is supported and report failures.
 type CastNode struct {
-	Inner Expr
+	Inner ExprNode
 	Type  arrow.DataType
 }
 
-func (c CastNode) String() string   { return fmt.Sprintf("cast(%s as %s)", c.Inner, typeName(c.Type)) }
-func (c CastNode) Children() []Expr { return []Expr{c.Inner} }
-func (CastNode) exprNode()          {}
+func (c CastNode) String() string       { return fmt.Sprintf("cast(%s as %s)", c.Inner, typeName(c.Type)) }
+func (c CastNode) Children() []ExprNode { return []ExprNode{c.Inner} }
 
 func (c CastNode) DataType(s *schema.Schema) (arrow.DataType, error) {
 	if c.Type == nil {

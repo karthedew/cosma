@@ -3,7 +3,7 @@ package dataframe
 import (
 	"testing"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/plan"
 )
 
@@ -23,7 +23,7 @@ func TestLazyPlanBuild(t *testing.T) {
 	}
 
 	lf := df.Lazy().
-		Filter(expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "a"}, Right: expr.LiteralNode{Value: 10}}).
+		Filter(expr.Col("a").Gt(expr.Lit(int32(10)))).
 		Select("a").
 		Limit(5)
 

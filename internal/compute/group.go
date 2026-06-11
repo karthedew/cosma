@@ -43,8 +43,35 @@ func GroupReduce(groupIDs []int, numGroups int, chunked *arrow.Chunked) ([]Aggre
 	case arrow.FLOAT64:
 		return groupTyped[float64](groupIDs, numGroups, chunked.Chunks(), func(a arrow.Array) valueArray[float64] { return a.(*array.Float64) }), nil
 	default:
-		return nil, fmt.Errorf("compute.GroupReduce: type %s not supported", chunked.DataType())
+		// Count is type-agnostic: it only counts non-null values, so any
+		// Arrow type (utf8, bool, etc.) can be reduced for AggOpCount even
+		// though Sum/Min/Max/Mean are undefined. Other aggregations on a
+		// non-numeric column leave their fields zero; callers route only
+		// Count to this result.
+		return groupCount(groupIDs, numGroups, chunked.Chunks()), nil
 	}
+}
+
+// groupCount counts non-null values per group regardless of the column's Arrow
+// type. Only the Count field of each Aggregates is populated.
+func groupCount(groupIDs []int, numGroups int, chunks []arrow.Array) []Aggregates {
+	counts := make([]int64, numGroups)
+	row := 0
+	for _, ch := range chunks {
+		for i := 0; i < ch.Len(); i++ {
+			g := groupIDs[row]
+			row++
+			if ch.IsNull(i) {
+				continue
+			}
+			counts[g]++
+		}
+	}
+	out := make([]Aggregates, numGroups)
+	for g := 0; g < numGroups; g++ {
+		out[g] = Aggregates{Count: counts[g]}
+	}
+	return out
 }
 
 func groupTyped[T number](groupIDs []int, numGroups int, chunks []arrow.Array, as func(arrow.Array) valueArray[T]) []Aggregates {

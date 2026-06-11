@@ -7,7 +7,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 )
 
 func twoColInt64(t *testing.T, a, b []int64) arrow.Record {
@@ -33,7 +33,7 @@ func TestEvalArithAddColumns(t *testing.T) {
 	rec := twoColInt64(t, []int64{1, 2, 3}, []int64{10, 20, 30})
 	defer rec.Release()
 
-	out, err := Eval(expr.Col("a").Add(expr.Col("b")).Build(), rec, memory.DefaultAllocator)
+	out, err := Eval(expr.Col("a").Add(expr.Col("b")).Node, rec, memory.DefaultAllocator)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestEvalArithDivByZeroIsNull(t *testing.T) {
 	rec := twoColInt64(t, []int64{10, 20}, []int64{2, 0})
 	defer rec.Release()
 
-	out, err := Eval(expr.Col("a").Div(expr.Col("b")).Build(), rec, memory.DefaultAllocator)
+	out, err := Eval(expr.Col("a").Div(expr.Col("b")).Node, rec, memory.DefaultAllocator)
 	if err != nil {
 		t.Fatalf("Eval: %v", err)
 	}

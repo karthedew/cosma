@@ -5,7 +5,7 @@ import (
 
 	"github.com/apache/arrow/go/v18/arrow"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/schema"
 )
 
@@ -24,7 +24,7 @@ func TestBindFilterMissingColumn(t *testing.T) {
 	s := schema.New(
 		schema.Field{Name: "a", Type: schema.Int32, ArrowType: arrow.PrimitiveTypes.Int32},
 	)
-	root := NewFilterNode(NewScanNode(s, ScanSourceDataFrame), expr.BinaryNode{Op: expr.BinaryOpGt, Left: expr.ColumnNode{Name: "missing"}, Right: expr.LiteralNode{Value: 1}})
+	root := NewFilterNode(NewScanNode(s, ScanSourceDataFrame), expr.Col("missing").Gt(expr.Lit(int64(1))))
 	plan := NewLogicalPlan(root)
 	if _, err := Bind(plan); err == nil {
 		t.Fatalf("expected bind error")

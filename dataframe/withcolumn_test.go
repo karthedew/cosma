@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 )
 
 func TestWithColumnAdds(t *testing.T) {
@@ -16,7 +16,7 @@ func TestWithColumnAdds(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.WithColumn("b", expr.Col("a").Add(expr.Lit(int64(10))).Build())
+	got, err := df.WithColumn(expr.Col("a").Add(expr.Lit(int64(10))).As("b"))
 	if err != nil {
 		t.Fatalf("WithColumn: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestWithColumnReplaces(t *testing.T) {
 	}
 
 	// Replace a with a*a, keeping position.
-	got, err := df.WithColumn("a", expr.Col("a").Mul(expr.Col("a")).Build())
+	got, err := df.WithColumn(expr.Col("a").Mul(expr.Col("a")))
 	if err != nil {
 		t.Fatalf("WithColumn: %v", err)
 	}

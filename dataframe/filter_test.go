@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/karthedew/cosma/internal/expr"
+	"github.com/karthedew/cosma/expr"
 )
 
 func TestFilter(t *testing.T) {
@@ -18,7 +18,7 @@ func TestFilter(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(2))).Build())
+	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(2))))
 	if err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestFilterEmptyResult(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(100))).Build())
+	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(100))))
 	if err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestFilterPredicateType(t *testing.T) {
 	}
 
 	// A non-boolean predicate (bare column) must be rejected.
-	if _, err := df.Filter(expr.Col("a").Build()); err == nil {
+	if _, err := df.Filter(expr.Col("a")); err == nil {
 		t.Fatalf("expected error for non-boolean predicate")
 	}
 }

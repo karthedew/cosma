@@ -40,7 +40,7 @@ func describeNode(node LogicalNode) string {
 			return fmt.Sprintf("source=%s", n.source)
 		}
 	case *FilterNode:
-		if n.Predicate != nil {
+		if n.Predicate.Node != nil {
 			return fmt.Sprintf("predicate=%s", n.Predicate)
 		}
 	case *ProjectNode:

@@ -6,6 +6,7 @@ import (
 	"github.com/apache/arrow/go/v18/arrow/array"
 
 	"github.com/karthedew/cosma/dataframe"
+	"github.com/karthedew/cosma/expr"
 )
 
 func main() {
@@ -79,10 +80,10 @@ func main() {
 
 	// Group by category and aggregate the nutrition columns.
 	out, err := df.GroupBy("category").Agg(
-		dataframe.Count("calories").As("items"),
-		dataframe.Sum("calories").As("total_calories"),
-		dataframe.Mean("calories").As("avg_calories"),
-		dataframe.Max("sugars_g").As("max_sugars"),
+		expr.Col("calories").Count().As("items"),
+		expr.Col("calories").Sum().As("total_calories"),
+		expr.Col("calories").Mean().As("avg_calories"),
+		expr.Col("sugars_g").Max().As("max_sugars"),
 	)
 	if err != nil {
 		panic(err)

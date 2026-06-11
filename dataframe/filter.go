@@ -6,8 +6,8 @@ import (
 	"github.com/apache/arrow/go/v18/arrow"
 	"github.com/apache/arrow/go/v18/arrow/memory"
 
+	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/internal/compute"
-	"github.com/karthedew/cosma/internal/expr"
 )
 
 // Filter returns a new DataFrame containing only the rows for which predicate
@@ -18,7 +18,7 @@ import (
 // The predicate is evaluated one canonical chunk at a time, so a frame with
 // misaligned column chunking is filtered without first being rechunked.
 func (df *DataFrame) Filter(predicate expr.Expr) (*DataFrame, error) {
-	if predicate == nil {
+	if predicate.Node == nil {
 		return nil, fmt.Errorf("filter: nil predicate")
 	}
 
@@ -41,7 +41,7 @@ func (df *DataFrame) Filter(predicate expr.Expr) (*DataFrame, error) {
 			break
 		}
 
-		mask, err := compute.Eval(predicate, rec, mem)
+		mask, err := compute.Eval(predicate.Node, rec, mem)
 		if err != nil {
 			rec.Release()
 			return nil, fmt.Errorf("filter: %w", err)
