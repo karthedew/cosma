@@ -1,6 +1,8 @@
 package expr
 
 import (
+	"time"
+
 	"github.com/apache/arrow/go/v18/arrow"
 )
 
@@ -28,6 +30,13 @@ func Col(name string) Expr {
 // (untyped ints → int64, untyped floats → float64). Use the typed constructors
 // below when you need a specific Arrow width.
 func Lit(v any) Expr {
+	// A time.Time is boxed to the canonical arrow.Timestamp (nanoseconds, UTC)
+	// so the compute layer sees the same storage representation that
+	// LitTimestamp produces.
+	if tt, ok := v.(time.Time); ok {
+		t, _ := inferLiteralType(tt)
+		return Expr{Node: LiteralNode{Value: arrow.Timestamp(tt.UTC().UnixNano()), Type: t}}
+	}
 	t, _ := inferLiteralType(v)
 	return Expr{Node: LiteralNode{Value: v, Type: t}}
 }
