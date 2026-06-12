@@ -6,7 +6,14 @@ import (
 )
 
 const (
+	// ScanSourceDataFrame is an in-memory DataFrame scan. The ScanNode.Handle
+	// is the *dataframe.DataFrame to materialize.
 	ScanSourceDataFrame = "dataframe"
+	// ScanSourceFile is a file-backed scan that the executor opens as a
+	// streaming RecordReader rather than materializing the whole file. The
+	// ScanNode.Handle carries a file-scan descriptor the executor understands
+	// (e.g. path + reader options).
+	ScanSourceFile = "file"
 )
 
 type LogicalNode interface {
