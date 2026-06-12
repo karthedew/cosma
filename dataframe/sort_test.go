@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -20,7 +21,7 @@ func TestSortAscending(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.Sort(expr.By("a"))
+	got, err := df.Sort(context.Background(), expr.By("a"))
 	if err != nil {
 		t.Fatalf("Sort: %v", err)
 	}
@@ -42,7 +43,7 @@ func TestSortDescending(t *testing.T) {
 	b, _ := NewSeries("b", []string{"x", "y", "z"})
 	df, _ := New([]*Series{a, b})
 
-	got, err := df.Sort(expr.By("a").Desc())
+	got, err := df.Sort(context.Background(), expr.By("a").Desc())
 	if err != nil {
 		t.Fatalf("Sort: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestSortDescending(t *testing.T) {
 func TestSortUnknownColumn(t *testing.T) {
 	a := multiChunkInt64(t, "a", [][]int64{{1, 2, 3}})
 	df, _ := New([]*Series{a})
-	if _, err := df.Sort(expr.By("nope")); err == nil {
+	if _, err := df.Sort(context.Background(), expr.By("nope")); err == nil {
 		t.Fatalf("expected error for unknown column")
 	}
 }

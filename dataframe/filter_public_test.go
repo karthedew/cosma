@@ -1,6 +1,7 @@
 package dataframe_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow/array"
@@ -46,7 +47,7 @@ func TestFilterPublicExpr(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{age})
 	require.NoError(t, err)
 
-	got, err := df.Filter(expr.Col("age").Gt(expr.Lit(int64(25))))
+	got, err := df.Filter(context.Background(), expr.Col("age").Gt(expr.Lit(int64(25))))
 	require.NoError(t, err)
 
 	require.Equal(t, []int64{30, 42}, int64Col(t, got, "age"))

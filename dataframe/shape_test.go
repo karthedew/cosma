@@ -128,4 +128,3 @@ func TestDataFrameHead(t *testing.T) {
 		t.Fatalf("original NumRows = %d, want 3", got)
 	}
 }
-

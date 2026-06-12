@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow/array"
@@ -80,6 +81,7 @@ func main() {
 
 	// Group by category and aggregate the nutrition columns.
 	out, err := df.GroupBy("category").Agg(
+		context.Background(),
 		expr.Col("calories").Count().As("items"),
 		expr.Col("calories").Sum().As("total_calories"),
 		expr.Col("calories").Mean().As("avg_calories"),

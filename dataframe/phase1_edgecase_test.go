@@ -5,6 +5,7 @@ package dataframe_test
 // Run with: go test -run TestEdge ./dataframe/
 
 import (
+	"context"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow/array"
@@ -62,7 +63,7 @@ func TestEdge_SortNullsFirst(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{xs})
 	require.NoError(t, err)
 
-	got, err := df.Sort(expr.By("x").WithNullsFirst())
+	got, err := df.Sort(context.Background(), expr.By("x").WithNullsFirst())
 	require.NoError(t, err)
 	require.EqualValues(t, 3, got.NumRows())
 
@@ -99,7 +100,7 @@ func TestEdge_GroupByCountNonNumeric(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{dept, name})
 	require.NoError(t, err)
 
-	got, err := df.GroupBy("dept").Agg(
+	got, err := df.GroupBy("dept").Agg(context.Background(),
 		expr.Col("name").Count().As("n"),
 	)
 	require.NoError(t, err, "Count on a string column should succeed")

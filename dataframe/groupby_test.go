@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"context"
 	"math"
 	"reflect"
 	"testing"
@@ -20,7 +21,7 @@ func TestGroupByAgg(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.GroupBy("k").Agg(expr.Col("v").Sum(), expr.Col("v").Count().As("n"), expr.Col("v").Mean())
+	got, err := df.GroupBy("k").Agg(context.Background(), expr.Col("v").Sum(), expr.Col("v").Count().As("n"), expr.Col("v").Mean())
 	if err != nil {
 		t.Fatalf("Agg: %v", err)
 	}
@@ -60,10 +61,10 @@ func TestGroupByErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := df.GroupBy("nope").Agg(expr.Col("v").Sum()); err == nil {
+	if _, err := df.GroupBy("nope").Agg(context.Background(), expr.Col("v").Sum()); err == nil {
 		t.Fatalf("expected error for unknown key column")
 	}
-	if _, err := df.GroupBy("v").Agg(expr.Col("nope").Sum()); err == nil {
+	if _, err := df.GroupBy("v").Agg(context.Background(), expr.Col("nope").Sum()); err == nil {
 		t.Fatalf("expected error for unknown agg column")
 	}
 }

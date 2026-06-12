@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -16,8 +17,9 @@ import (
 // unchanged — surviving rows are copied into freshly-allocated columns.
 //
 // The predicate is evaluated one canonical chunk at a time, so a frame with
-// misaligned column chunking is filtered without first being rechunked.
-func (df *DataFrame) Filter(predicate expr.Expr) (*DataFrame, error) {
+// misaligned column chunking is filtered without first being rechunked. ctx is
+// checked between record batches so a cancelled context stops the scan early.
+func (df *DataFrame) Filter(ctx context.Context, predicate expr.Expr) (*DataFrame, error) {
 	if predicate.Node == nil {
 		return nil, fmt.Errorf("filter: nil predicate")
 	}
@@ -33,6 +35,10 @@ func (df *DataFrame) Filter(predicate expr.Expr) (*DataFrame, error) {
 	defer releaseRecords(filtered)
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
 		rec, ok, err := iter.Next()
 		if err != nil {
 			return nil, err

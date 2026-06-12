@@ -1,6 +1,7 @@
 package dataframe_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow"
@@ -20,7 +21,7 @@ func TestPhase2_FilterAnd(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{age})
 	require.NoError(t, err)
 
-	got, err := df.Filter(expr.Col("age").Gt(expr.Lit(int64(20))).And(expr.Col("age").Lt(expr.Lit(int64(40)))))
+	got, err := df.Filter(context.Background(), expr.Col("age").Gt(expr.Lit(int64(20))).And(expr.Col("age").Lt(expr.Lit(int64(40)))))
 	require.NoError(t, err)
 	require.Equal(t, []int64{30, 25, 21}, int64Col(t, got, "age"))
 }
@@ -35,7 +36,7 @@ func TestPhase2_FilterNot(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{active, id})
 	require.NoError(t, err)
 
-	got, err := df.Filter(expr.Col("active").Not())
+	got, err := df.Filter(context.Background(), expr.Col("active").Not())
 	require.NoError(t, err)
 	require.Equal(t, []int64{2, 4}, int64Col(t, got, "id"))
 }
@@ -69,11 +70,11 @@ func TestPhase2_FilterIsNull(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{xs, id})
 	require.NoError(t, err)
 
-	gotNull, err := df.Filter(expr.Col("x").IsNull())
+	gotNull, err := df.Filter(context.Background(), expr.Col("x").IsNull())
 	require.NoError(t, err)
 	require.Equal(t, []int64{20}, int64Col(t, gotNull, "id"))
 
-	gotNotNull, err := df.Filter(expr.Col("x").IsNotNull())
+	gotNotNull, err := df.Filter(context.Background(), expr.Col("x").IsNotNull())
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 30}, int64Col(t, gotNotNull, "id"))
 }
@@ -100,7 +101,7 @@ func TestPhase2_StringFilterAndGroupMax(t *testing.T) {
 	require.NoError(t, err)
 	df, err := dataframe.New([]*dataframe.Series{name})
 	require.NoError(t, err)
-	got, err := df.Filter(expr.Col("name").Eq(expr.Lit("Alice")))
+	got, err := df.Filter(context.Background(), expr.Col("name").Eq(expr.Lit("Alice")))
 	require.NoError(t, err)
 	require.EqualValues(t, 2, got.NumRows())
 
@@ -110,7 +111,7 @@ func TestPhase2_StringFilterAndGroupMax(t *testing.T) {
 	require.NoError(t, err)
 	gdf, err := dataframe.New([]*dataframe.Series{dept, who})
 	require.NoError(t, err)
-	agg, err := gdf.GroupBy("dept").Agg(expr.Col("name").Max().As("m"))
+	agg, err := gdf.GroupBy("dept").Agg(context.Background(), expr.Col("name").Max().As("m"))
 	require.NoError(t, err)
 	require.Equal(t, []string{"dept", "m"}, agg.Columns())
 	// eng: max(amy,bob)=bob ; sales: max(zoe,ann)=zoe
