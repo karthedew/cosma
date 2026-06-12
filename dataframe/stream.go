@@ -86,6 +86,48 @@ func FileSchema(f FileScan) (*arrow.Schema, error) {
 	return s, nil
 }
 
+// --- Generalized source scan -------------------------------------------------
+
+// ScanHints carries the optimizer's pushdown annotations to a SourceScan at open
+// time. Every hint is advisory: a source honors whichever it understands, and
+// the surviving Filter/Project/Limit nodes above the scan keep the result
+// correct regardless of what was honored. The fields mirror the ScanNode's
+// PushedFilters/PushedColumns/PushedLimit annotations.
+type ScanHints struct {
+	// Filters are predicates the source may apply to drop rows early. Each is a
+	// standalone predicate (the conjunction of all of them is the effective
+	// filter).
+	Filters []expr.Expr
+	// Columns, when non-empty, is the projected column subset the source may
+	// emit instead of the full schema.
+	Columns []string
+	// Limit is the row budget the source may stop at, or -1 for no limit
+	// (matching the PushedLimit zero-value convention).
+	Limit int64
+}
+
+// SourceScan is the opaque ScanNode.Handle for a generalized (ScanSourceCustom)
+// scan over a caller-supplied streaming source. Any package can build one and
+// hand it to NewLazySourceScan to get a lazy scan that participates in the
+// optimizer and streaming pipeline without importing dataframe internals. It is
+// the non-file counterpart to FileScan: the schema is required up front (the
+// binder needs it, and custom sources such as arrays or manifests have a
+// statically known schema with no probe read needed), and Open is called with
+// the optimizer's pushdown hints so the source can prune at the source.
+type SourceScan struct {
+	// Schema is the Arrow schema the source emits. Required: it binds the lazy
+	// plan without draining data.
+	Schema *arrow.Schema
+	// Open returns a streaming Arrow RecordReader over the source. The returned
+	// reader owns its resources and releases them on Release. The hints are
+	// advisory (see ScanHints).
+	Open func(ctx context.Context, hints ScanHints) (array.RecordReader, error)
+	// AllowNullable controls schema nullability when (and only when) the scan is
+	// materialized into a DataFrame under eager Collect; streaming readers pass
+	// batches through unchanged.
+	AllowNullable bool
+}
+
 // --- DataFrame -> RecordReader adapter --------------------------------------
 
 // dfReader streams the record batches of a materialized DataFrame. It is the

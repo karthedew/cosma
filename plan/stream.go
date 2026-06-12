@@ -47,10 +47,11 @@ func execStream(ctx context.Context, node PhysicalNode, exec Executor) (any, err
 	return exec.StreamFromDataFrame(df)
 }
 
-// PhysScan streams: a file source opens a RecordReader directly; an in-memory
-// DataFrame source materializes (cheaply, it is already in memory) and adapts.
+// PhysScan streams: a file or custom source opens a RecordReader directly; an
+// in-memory DataFrame source materializes (cheaply, it is already in memory)
+// and adapts.
 func (n *PhysScan) ExecuteStream(ctx context.Context, exec Executor) (any, error) {
-	if n.Node != nil && n.Node.Source() == ScanSourceFile {
+	if n.Node != nil && (n.Node.Source() == ScanSourceFile || n.Node.Source() == ScanSourceCustom) {
 		return exec.ScanStream(ctx, n.Node)
 	}
 	df, err := exec.Scan(ctx, n.Node)
