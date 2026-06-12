@@ -112,10 +112,10 @@ func TestKleene_AND_FullTruthTable(t *testing.T) {
 		a, b tristate
 		want tristate
 	}{
-		{tTrue, tTrue, tTrue},   // T∧T = T
-		{tTrue, tFalse, tFalse}, // T∧F = F
-		{tTrue, tNull, tNull},   // T∧N = N
-		{tFalse, tTrue, tFalse}, // F∧T = F
+		{tTrue, tTrue, tTrue},    // T∧T = T
+		{tTrue, tFalse, tFalse},  // T∧F = F
+		{tTrue, tNull, tNull},    // T∧N = N
+		{tFalse, tTrue, tFalse},  // F∧T = F
 		{tFalse, tFalse, tFalse}, // F∧F = F
 		{tFalse, tNull, tFalse},  // F∧N = F  (FALSE dominates)
 		{tNull, tTrue, tNull},    // N∧T = N
@@ -145,10 +145,10 @@ func TestKleene_OR_FullTruthTable(t *testing.T) {
 		a, b tristate
 		want tristate
 	}{
-		{tTrue, tTrue, tTrue},   // T∨T = T
-		{tTrue, tFalse, tTrue},  // T∨F = T
-		{tTrue, tNull, tTrue},   // T∨N = T  (TRUE dominates)
-		{tFalse, tTrue, tTrue},  // F∨T = T
+		{tTrue, tTrue, tTrue},    // T∨T = T
+		{tTrue, tFalse, tTrue},   // T∨F = T
+		{tTrue, tNull, tTrue},    // T∨N = T  (TRUE dominates)
+		{tFalse, tTrue, tTrue},   // F∨T = T
 		{tFalse, tFalse, tFalse}, // F∨F = F
 		{tFalse, tNull, tNull},   // F∨N = N
 		{tNull, tTrue, tTrue},    // N∨T = T  (TRUE dominates)
@@ -245,9 +245,9 @@ func TestEdgeCase_B_CastArithResult(t *testing.T) {
 	require.Equal(t, arrow.FLOAT64, out.DataType().ID(), "output type must be float64")
 	f, ok := out.(*array.Float64)
 	require.True(t, ok)
-	assert.Equal(t, float64(5), f.Value(0))  // 1+4
-	assert.Equal(t, float64(7), f.Value(1))  // 2+5
-	assert.Equal(t, float64(9), f.Value(2))  // 3+6
+	assert.Equal(t, float64(5), f.Value(0)) // 1+4
+	assert.Equal(t, float64(7), f.Value(1)) // 2+5
+	assert.Equal(t, float64(9), f.Value(2)) // 3+6
 }
 
 // ─── Task 3C: Temporal arithmetic Timestamp - Timestamp → Duration ────────

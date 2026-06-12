@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestFilter(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(2))))
+	got, err := df.Filter(context.Background(), expr.Col("a").Gt(expr.Lit(int64(2))))
 	if err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestFilterEmptyResult(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := df.Filter(expr.Col("a").Gt(expr.Lit(int64(100))))
+	got, err := df.Filter(context.Background(), expr.Col("a").Gt(expr.Lit(int64(100))))
 	if err != nil {
 		t.Fatalf("Filter: %v", err)
 	}
@@ -65,7 +66,7 @@ func TestFilterPredicateType(t *testing.T) {
 	}
 
 	// A non-boolean predicate (bare column) must be rejected.
-	if _, err := df.Filter(expr.Col("a")); err == nil {
+	if _, err := df.Filter(context.Background(), expr.Col("a")); err == nil {
 		t.Fatalf("expected error for non-boolean predicate")
 	}
 }

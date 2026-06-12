@@ -1,6 +1,7 @@
 package dataframe_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/apache/arrow/go/v18/arrow/array"
@@ -46,7 +47,7 @@ func TestSortAscendingPublic(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{age})
 	require.NoError(t, err)
 
-	got, err := df.Sort(expr.By("age"))
+	got, err := df.Sort(context.Background(), expr.By("age"))
 	require.NoError(t, err)
 	require.Equal(t, []int64{10, 20, 30}, int64Col(t, got, "age"))
 }
@@ -61,7 +62,7 @@ func TestSortMultiColumnPublic(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{dept, salary})
 	require.NoError(t, err)
 
-	got, err := df.Sort(expr.By("dept"), expr.By("salary").Desc())
+	got, err := df.Sort(context.Background(), expr.By("dept"), expr.By("salary").Desc())
 	require.NoError(t, err)
 
 	require.Equal(t, []string{"a", "a", "b", "b"}, stringColPub(t, got, "dept"))

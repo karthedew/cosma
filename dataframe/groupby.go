@@ -1,6 +1,7 @@
 package dataframe
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -49,8 +50,9 @@ func resolveAgg(a expr.AggNode) (resolvedAgg, error) {
 // DataFrame whose columns are the key columns (in group-key order) followed by
 // the aggregations (in argument order). Groups appear in first-appearance
 // order. Each aggregation is computed once per value column via a single
-// per-group fold (compute.GroupReduce).
-func (gb *GroupBy) Agg(aggs ...expr.AggNode) (*DataFrame, error) {
+// per-group fold (compute.GroupReduce). ctx is checked once group ids have been
+// assigned (the single linear scan over rows), before the per-group reductions.
+func (gb *GroupBy) Agg(ctx context.Context, aggs ...expr.AggNode) (*DataFrame, error) {
 	df := gb.df
 	mem := memory.DefaultAllocator
 
@@ -100,6 +102,10 @@ func (gb *GroupBy) Agg(aggs ...expr.AggNode) (*DataFrame, error) {
 		groupIDs[r] = id
 	}
 	numGroups := len(groupKeys)
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	// Reduce each referenced value column once, caching the result.
 	reductions := make(map[string][]compute.Aggregates)

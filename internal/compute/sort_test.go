@@ -23,11 +23,11 @@ func TestSortIndicesNullsLast(t *testing.T) {
 	a.Release()
 	defer ch.Release()
 
-	idx, err := SortIndices(ch, false)
+	idx, err := SortIndices(ch, false, false)
 	if err != nil {
 		t.Fatalf("SortIndices: %v", err)
 	}
-	if !reflect.DeepEqual(idx, []int{2, 3, 0, 1}) {
+	if !reflect.DeepEqual(idx, []int64{2, 3, 0, 1}) {
 		t.Fatalf("idx = %v, want [2 3 0 1]", idx)
 	}
 }

@@ -1,6 +1,7 @@
 package dataframe_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestGroupByAggNode(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{dept, salary, id})
 	require.NoError(t, err)
 
-	got, err := df.GroupBy("dept").Agg(
+	got, err := df.GroupBy("dept").Agg(context.Background(),
 		expr.Col("salary").Sum().As("total"),
 		expr.Col("id").Count().As("n"),
 	)
@@ -43,7 +44,7 @@ func TestGroupByCountStringColumn(t *testing.T) {
 	df, err := dataframe.New([]*dataframe.Series{dept, name})
 	require.NoError(t, err)
 
-	got, err := df.GroupBy("dept").Agg(expr.Col("name").Count().As("n"))
+	got, err := df.GroupBy("dept").Agg(context.Background(), expr.Col("name").Count().As("n"))
 	require.NoError(t, err)
 
 	require.Equal(t, []string{"dept", "n"}, got.Columns())
