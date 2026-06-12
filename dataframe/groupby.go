@@ -108,6 +108,9 @@ func (gb *GroupBy) Agg(ctx context.Context, aggs ...expr.AggNode) (*DataFrame, e
 	}
 
 	// Reduce each referenced value column once, caching the result.
+	// Use the parallel path when parallelism is not forced to 1; the two-phase
+	// parallel GroupReduce flattens the chunked column then fans out strip
+	// reductions across goroutines.
 	reductions := make(map[string][]compute.Aggregates)
 	reduceCol := func(col string) ([]compute.Aggregates, error) {
 		if r, ok := reductions[col]; ok {
@@ -117,7 +120,13 @@ func (gb *GroupBy) Agg(ctx context.Context, aggs ...expr.AggNode) (*DataFrame, e
 		if idx < 0 {
 			return nil, fmt.Errorf("groupby: aggregation column %q not found", col)
 		}
-		r, err := compute.GroupReduce(groupIDs, numGroups, df.cols[idx].Chunked())
+		var r []compute.Aggregates
+		var err error
+		if compute.Parallelism() != 1 {
+			r, err = compute.GroupReduceParallel(groupIDs, numGroups, df.cols[idx].Chunked())
+		} else {
+			r, err = compute.GroupReduce(groupIDs, numGroups, df.cols[idx].Chunked())
+		}
 		if err != nil {
 			return nil, fmt.Errorf("groupby: column %q: %w", col, err)
 		}

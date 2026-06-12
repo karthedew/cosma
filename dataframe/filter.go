@@ -16,9 +16,11 @@ import (
 // columns; rows where it evaluates to null are dropped. The receiver is
 // unchanged — surviving rows are copied into freshly-allocated columns.
 //
-// The predicate is evaluated one canonical chunk at a time, so a frame with
-// misaligned column chunking is filtered without first being rechunked. ctx is
-// checked between record batches so a cancelled context stops the scan early.
+// When compute.Parallelism() != 1 and the frame has more than one chunk, the
+// per-chunk eval+filter work is fanned out across compute.Parallelism()
+// goroutines (defaulting to GOMAXPROCS). For a single chunk or parallelism==1
+// the serial path is taken. ctx is checked between record batches so a
+// cancelled context stops the scan early.
 func (df *DataFrame) Filter(ctx context.Context, predicate expr.Expr) (*DataFrame, error) {
 	if predicate.Node == nil {
 		return nil, fmt.Errorf("filter: nil predicate")
@@ -31,35 +33,76 @@ func (df *DataFrame) Filter(ctx context.Context, predicate expr.Expr) (*DataFram
 	arrSchema := iter.Schema()
 	mem := memory.DefaultAllocator
 
-	filtered := make([]arrow.Record, 0, df.NumChunks())
-	defer releaseRecords(filtered)
-
+	// Collect all record batches from the iterator.
+	allBatches := make([]arrow.Record, 0, df.NumChunks())
 	for {
 		if err := ctx.Err(); err != nil {
+			releaseRecords(allBatches)
 			return nil, err
 		}
-
 		rec, ok, err := iter.Next()
 		if err != nil {
+			releaseRecords(allBatches)
 			return nil, err
 		}
 		if !ok {
 			break
 		}
-
-		mask, err := compute.Eval(predicate.Node, rec, mem)
-		if err != nil {
-			rec.Release()
-			return nil, fmt.Errorf("filter: %w", err)
-		}
-		out, err := compute.FilterRecord(rec, mask, mem)
-		mask.Release()
-		rec.Release()
-		if err != nil {
-			return nil, fmt.Errorf("filter: %w", err)
-		}
-		filtered = append(filtered, out)
+		allBatches = append(allBatches, rec)
 	}
+	// allBatches are owned here; release on all exit paths.
+	defer releaseRecords(allBatches)
+
+	filtered, err := filterBatches(ctx, predicate.Node, allBatches, mem)
+	if err != nil {
+		return nil, fmt.Errorf("filter: %w", err)
+	}
+	// filtered records are newly allocated; release after FromRecordBatches
+	// retains the column arrays.
+	defer releaseRecords(filtered)
 
 	return FromRecordBatches(arrSchema, filtered)
+}
+
+// filterBatches applies the predicate to each batch, using the parallel path
+// when there are multiple batches and parallelism is not forced to 1.
+func filterBatches(
+	ctx context.Context,
+	predicate expr.ExprNode,
+	batches []arrow.Record,
+	mem memory.Allocator,
+) ([]arrow.Record, error) {
+	if len(batches) > 1 && compute.Parallelism() != 1 {
+		return compute.EvalParallel(ctx, predicate, batches, mem)
+	}
+	return filterBatchesSerial(ctx, predicate, batches, mem)
+}
+
+// filterBatchesSerial is the original serial filter loop.
+func filterBatchesSerial(
+	ctx context.Context,
+	predicate expr.ExprNode,
+	batches []arrow.Record,
+	mem memory.Allocator,
+) ([]arrow.Record, error) {
+	out := make([]arrow.Record, 0, len(batches))
+	for _, rec := range batches {
+		if err := ctx.Err(); err != nil {
+			releaseRecords(out)
+			return nil, err
+		}
+		mask, err := compute.Eval(predicate, rec, mem)
+		if err != nil {
+			releaseRecords(out)
+			return nil, err
+		}
+		filtered, err := compute.FilterRecord(rec, mask, mem)
+		mask.Release()
+		if err != nil {
+			releaseRecords(out)
+			return nil, err
+		}
+		out = append(out, filtered)
+	}
+	return out, nil
 }
