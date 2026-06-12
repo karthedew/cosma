@@ -1,6 +1,6 @@
 # Cosma Roadmap
 
-_Last updated: 2026-06-10_
+_Last updated: 2026-06-11_
 
 This roadmap focuses on shipping a fast, reliable, Arrow-native dataframe engine
 for Go. It is ordered by what blocks users today, not by ambition.
@@ -15,27 +15,28 @@ for Go. It is ordered by what blocks users today, not by ambition.
 
 ## Where the code is today
 
-Implemented and tested (full suite green under `go test -race ./...`):
+All 8 planned phases are **complete and green** under `go test -race ./...`.
 
-- **Core:** chunked Arrow-native `DataFrame`/`Series`/`Column` with append/flush
-  lifecycle, rechunking (`Rechunk`, `RechunkToRows`, `RechunkIfNeeded`).
-- **Eager ops:** `Select`/`Drop`/`Rename`, `Limit`/`Head`, `Filter(expr)`,
-  `WithColumn(name, expr)`, `Sort(col, descending)` (stable, nulls-last),
-  `Sum`/`Count`/`Mean`/`Min`/`Max`, `GroupBy(keys...).Agg(...)`,
-  `Concat`/`HStack`.
-- **Compute kernels** (`internal/compute`): expression evaluation over record
-  batches (comparisons and `+ - * /` arithmetic), boolean-mask filter, single-pass
-  and grouped numeric reductions, stable argsort.
-- **Expressions** (`internal/expr`): fluent builder with typed literals,
-  comparisons, boolean ops, arithmetic, null checks, and aggregate markers.
-- **IO:** eager `ReadCSV`/`WriteCSV`/`ReadParquet`/`WriteParquet`; streaming
-  `scan.ScanCSV`/`scan.ScanParquet` with batching options; `RecordBatchIter`.
-- **Planning:** logical plan (Scan/Filter/Project/Limit) with schema-checked
-  `Bind` and `Explain`; `df.Lazy().Filter/Select/Limit().Plan()` builds plans
-  but **does not execute them** — `PhysicalPlan` is an empty skeleton.
+- **Public Expression API** (`cosma/expr`): fully public AST (`ColumnNode`, `BinaryNode`,
+  `AggNode`, `CastNode`, etc.) — inspectable, serializable, distributed-compute-ready.
+- **Expression Engine**: Kleene boolean semantics, unary/cast kernels, full Arrow type
+  coverage (string, temporal, Decimal128). Custom kernel registration via
+  `compute.RegisterBinaryKernel` / `compute.RegisterUnaryKernel`.
+- **Eager Ops**: `Filter`, `WithColumn`, `Sort` (multi-key, typed take), `GroupBy.Agg`,
+  `Join` (inner + left hash join, `_right` suffix on conflicts).
+- **Lazy Execution**: `LazyFrame.Collect(ctx)` and `CollectStream(ctx)` with
+  optimizer (predicate/projection/limit pushdown), physical plan, and full lazy parity.
+- **Streaming**: per-batch streaming over large files, bounded RSS, ctx cancellation.
+- **Parallel Execution**: `compute.SetParallelism`, `EvalParallel`, two-phase parallel
+  GroupReduce, `OpMetrics` / `LastMetrics` observability. 3.1× filter speedup at p=8.
+- **ADBC Connectivity** (`internal/ingest.ADBC`): driver-agnostic adapter; any
+  `adbc.Database` (DuckDB, PostgreSQL, FlightSQL) produces an `array.RecordReader`
+  identical to the CSV/Parquet seam.
+- **Gonum Integration** (`cosma/gonum`): `ToMatrix` → `*mat.Dense`,
+  `ToVector` → `*mat.VecDense`, explicit `NullPolicy` (Error/Drop/Fill).
 
-Explicitly out of scope for v1 (revisit after Phase 5): SQL, window/rolling,
-pivot, distributed execution, custom memory manager, GPU.
+Explicitly out of scope for v1: SQL, window/rolling, pivot, distributed execution,
+custom memory manager, GPU. Parallel track: `carray` n-dimensional array package (ADR 0005).
 
 ## Phase 1 — Public Expression API _(highest priority — blocks all external users)_
 

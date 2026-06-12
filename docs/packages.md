@@ -4,12 +4,13 @@
 | --- | --- | --- | --- |
 | dataframe | Public | Evolving public API | Main user entry point |
 | expr | Public | Stable public API | Public expression AST and fluent builders (ADR 0004) |
-| scan | Public | Evolving public API | Streaming readers |
+| scan | Public | Evolving public API | Streaming readers; lazy scan sources |
 | schema | Public | Evolving public API | Schema helpers/types |
 | plan | Public | Experimental public API | Logical planning surface |
-| compute | Public | Evolving public API | Numeric export/transform |
+| gonum | Public | Evolving public API | Export to Gonum mat.Dense / mat.VecDense |
 | operator | Repo-visible | Unstable, not an extension API | May move/internalize later |
-| internal/exec | Internal | Internal only | Runtime/compiler/executor |
+| internal/ingest | Internal | Internal only | CSV, Parquet, ADBC reader adapters |
+| internal/compute | Internal | Internal only | Expression eval kernels, parallel execution |
 | internal/expr | Internal | Internal only | Binding/coercion helpers over the public expr tree |
 | internal/stream | Internal | Internal only | Reader adapters/stream glue |
 
