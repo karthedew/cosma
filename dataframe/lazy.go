@@ -47,6 +47,29 @@ func NewLazyFileScan(fs FileScan) *LazyFrame {
 	return &LazyFrame{root: root}
 }
 
+// NewLazySourceScan builds a LazyFrame whose source is a generalized streaming
+// source (a SourceScan). It mirrors NewLazyFileScan but for any caller-supplied
+// source: the physical plan opens it via SourceScan.Open under both CollectStream
+// (streaming, no full materialization) and Collect (drained into a DataFrame),
+// passing the optimizer's pushdown hints so the source can prune at open time.
+// The schema is required up front so the lazy plan can be bound without draining
+// data; it is an error for SourceScan.Schema or SourceScan.Open to be nil.
+func NewLazySourceScan(ss SourceScan) *LazyFrame {
+	if ss.Schema == nil {
+		return &LazyFrame{err: fmt.Errorf("lazy source scan: schema is nil")}
+	}
+	if ss.Open == nil {
+		return &LazyFrame{err: fmt.Errorf("lazy source scan: open is nil")}
+	}
+	s, err := schema.FromArrow(ss.Schema)
+	if err != nil {
+		return &LazyFrame{err: fmt.Errorf("lazy source scan: schema: %w", err)}
+	}
+	root := plan.NewScanNode(s, plan.ScanSourceCustom)
+	root.Handle = ss
+	return &LazyFrame{root: root}
+}
+
 func (lf *LazyFrame) Filter(predicate expr.Expr) *LazyFrame {
 	if lf.err != nil {
 		return lf

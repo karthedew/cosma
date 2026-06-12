@@ -49,6 +49,24 @@ func (DataFrameExecutor) Scan(ctx context.Context, node *plan.ScanNode) (any, er
 		}
 		return df, nil
 	}
+	// A generalized source scan under eager Collect: open the reader with the
+	// pushdown hints, drain it into a DataFrame, and honor a pushed limit. The
+	// hints are advisory, so the limit above is reapplied even if the source
+	// already truncated.
+	if ss, ok := node.Handle.(SourceScan); ok {
+		reader, err := ss.Open(ctx, scanHints(node))
+		if err != nil {
+			return nil, err
+		}
+		df, err := collectReader(reader, ss.AllowNullable)
+		if err != nil {
+			return nil, err
+		}
+		if node.PushedLimit >= 0 {
+			df = df.Limit(int(node.PushedLimit))
+		}
+		return df, nil
+	}
 	df, err := asDF(node.Handle, "scan")
 	if err != nil {
 		return nil, err
@@ -142,19 +160,45 @@ func (DataFrameExecutor) ScanStream(ctx context.Context, node *plan.ScanNode) (a
 	if node == nil {
 		return nil, fmt.Errorf("scan stream: node is nil")
 	}
-	fs, ok := node.Handle.(FileScan)
-	if !ok {
-		return nil, fmt.Errorf("scan stream: expected FileScan handle, got %T", node.Handle)
+	switch h := node.Handle.(type) {
+	case FileScan:
+		reader, err := h.open(ctx)
+		if err != nil {
+			return nil, err
+		}
+		var r RecordReader = reader
+		if cols := node.PushedColumns; len(cols) > 0 {
+			r = newProjectReader(r, cols)
+		}
+		return newCtxReader(ctx, r), nil
+	case SourceScan:
+		reader, err := h.Open(ctx, scanHints(node))
+		if err != nil {
+			return nil, err
+		}
+		var r RecordReader = reader
+		// Keep the column projection as a fallback: if the source did not prune
+		// to PushedColumns itself, this narrows the batches (project is
+		// idempotent, so it is harmless when the source already pruned).
+		if cols := node.PushedColumns; len(cols) > 0 {
+			r = newProjectReader(r, cols)
+		}
+		return newCtxReader(ctx, r), nil
+	default:
+		return nil, fmt.Errorf("scan stream: unsupported scan handle %T", node.Handle)
 	}
-	reader, err := fs.open(ctx)
-	if err != nil {
-		return nil, err
+}
+
+// scanHints translates a ScanNode's optimizer pushdown annotations into the
+// ScanHints passed to a SourceScan at open time. The annotations are advisory
+// (see ScanHints): the surviving Filter/Project/Limit nodes above the scan keep
+// results correct regardless of which the source honors.
+func scanHints(node *plan.ScanNode) ScanHints {
+	return ScanHints{
+		Filters: node.PushedFilters,
+		Columns: node.PushedColumns,
+		Limit:   node.PushedLimit,
 	}
-	var r RecordReader = reader
-	if cols := node.PushedColumns; len(cols) > 0 {
-		r = newProjectReader(r, cols)
-	}
-	return newCtxReader(ctx, r), nil
 }
 
 func (DataFrameExecutor) FilterStream(ctx context.Context, v any, predicate expr.Expr) (any, error) {

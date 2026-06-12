@@ -14,6 +14,11 @@ const (
 	// ScanNode.Handle carries a file-scan descriptor the executor understands
 	// (e.g. path + reader options).
 	ScanSourceFile = "file"
+	// ScanSourceCustom is a generalized scan over a caller-supplied streaming
+	// source. The ScanNode.Handle carries a descriptor the executor opens via a
+	// closure, passing it the pushdown hints (filters, columns, limit) so the
+	// source can honor whichever it understands.
+	ScanSourceCustom = "custom"
 )
 
 type LogicalNode interface {

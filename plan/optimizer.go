@@ -72,12 +72,38 @@ func pushColumns(node LogicalNode) {
 	})
 }
 
-// pushLimit records the smallest LimitNode value above each scan (a Project
-// between the limit and scan is transparent to row count, so it is allowed).
+// limitScanBelow walks the chain below a limit and returns the ScanNode at its
+// base, traversing only operators that preserve both row count and row order
+// (Project, WithColumn). Unlike scanBelow it must stop at Filter and Sort: a
+// limit hard-applied at the scan before a filter drops the wrong rows, and
+// before a sort keeps the wrong rows. The executor honors PushedLimit by
+// truncating during the scan, so pushing across those nodes is unsound, not
+// merely unhelpful.
+func limitScanBelow(node LogicalNode) *ScanNode {
+	for {
+		switch n := node.(type) {
+		case *ScanNode:
+			return n
+		case *ProjectNode:
+			node = n.Input
+		case *WithColumnNode:
+			node = n.Input
+		case *LimitNode:
+			// A nested limit keeps a prefix too; the min logic in pushLimit
+			// makes pushing across it sound.
+			node = n.Input
+		default:
+			return nil
+		}
+	}
+}
+
+// pushLimit records the smallest LimitNode value above each scan, looking
+// through row-preserving operators only (see limitScanBelow).
 func pushLimit(node LogicalNode) {
 	walk(node, func(n LogicalNode) {
 		if l, ok := n.(*LimitNode); ok {
-			if s := scanBelow(l); s != nil {
+			if s := limitScanBelow(l); s != nil {
 				if s.PushedLimit < 0 || l.N < s.PushedLimit {
 					s.PushedLimit = l.N
 				}
