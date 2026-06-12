@@ -215,3 +215,130 @@ Related code:
 - `Column` owns immutable arrays and exposes logical `*arrow.Chunked`.
 - Flushes are safe to call repeatedly; when empty they are no-ops.
 - Builders and arrays are reference-counted and must be released.
+
+---
+
+## Expression System
+
+The public expression AST lives in `cosma/expr` (see [ADR 0004](adr/0004-public-expression-ast.md)).
+All node types are exported: `ColumnNode`, `LiteralNode`, `BinaryNode`, `UnaryNode`,
+`AggNode`, `AliasNode`, `CastNode`. The tree is inspectable, serializable, and safe
+for external optimizer passes or plan deserialization.
+
+Engine internals stay in `internal/expr` (coercion helpers, type promotion rules) and
+`internal/compute` (kernel evaluation, kernel registration).
+
+```
+cosma/expr          — public AST nodes and fluent builder (expr.Col, expr.Lit, ...)
+    ↓
+internal/compute    — Eval(expr.Expr, record, mem) → arrow.Array
+    ↓
+dataframe           — Filter, WithColumn, GroupBy, Sort call Eval
+```
+
+`internal/compute` exposes `RegisterBinaryKernel` and `RegisterUnaryKernel` for
+custom Arrow types (e.g. the future `carray` package).
+
+Boolean kernels use Kleene three-valued null semantics. `Cast` and `Alias` nodes
+are evaluated by the kernel. All Arrow primitive and temporal types are covered;
+`List`, `Struct`, `Map`, and `Union` are explicitly rejected at bind time.
+
+## Lazy Execution and Planning
+
+```mermaid
+flowchart TD
+    A[df.Lazy()] --> B[LogicalPlan]
+    B --> C[plan.Optimize]
+    C --> D[plan.Lower to PhysicalPlan]
+    D --> E[DataFrameExecutor.Execute]
+    E --> F[*DataFrame]
+    E --> G[dataframe.RecordReader stream]
+```
+
+The lazy pipeline has three stages:
+
+1. **Bind** — `plan.Bind(lp)` resolves column references against the schema and
+   produces a type-checked logical plan.
+
+2. **Optimize** — `plan.Optimizer` applies predicate pushdown, projection pushdown,
+   and limit pushdown into `ScanNode`, annotating it with `PushedFilters`,
+   `PushedColumns`, and `PushedLimit`.
+
+3. **Lower + Execute** — `plan.Lower` produces physical nodes (`PhysFilter`,
+   `PhysSort`, `PhysAgg`, `PhysJoin`, etc.). Each physical node calls through the
+   injected `plan.Executor` interface, implemented by `DataFrameExecutor` in the
+   `dataframe` package. This interface breaks the `plan ↔ dataframe` import cycle.
+
+`LazyFrame.Collect(ctx)` materializes the result as a `*DataFrame`.
+`LazyFrame.CollectStream(ctx)` returns a `dataframe.RecordReader` for per-batch
+streaming without full materialization.
+
+Key files:
+- `plan/logical.go`, `plan/physical.go`, `plan/optimizer.go`, `plan/lower.go`
+- `plan/executor.go` — `Executor` interface
+- `dataframe/executor.go` — `DataFrameExecutor` implementation
+- `dataframe/lazy.go`, `dataframe/stream.go`
+
+## Streaming Execution
+
+Streaming follows the boundary in [ADR 0002](adr/0002-streaming-execution-boundary.md):
+filter, project, and limit are applied per `arrow.RecordBatch` as it arrives from the
+scan source. Pipeline-breaking operators (sort, groupby, join) materialize their full
+input before producing output.
+
+`scan.LazyScanCSV` and `scan.LazyScanParquet` return a `LazyFrame` backed by a
+streaming scan source. The `scan.RecordReader` interface (5 methods: `Schema`, `Next`,
+`Record`, `Err`, `Release`) is structurally identical to `dataframe.RecordReader` but
+declared separately to avoid a `dataframe → scan` import cycle.
+
+## Parallel Execution
+
+```mermaid
+flowchart LR
+    A[Multi-chunk DataFrame] --> B[EvalParallel]
+    B --> C[goroutine per chunk]
+    C --> D[Eval kernel]
+    D --> E[gather in order]
+    E --> F[filtered result]
+```
+
+`internal/compute.EvalParallel` fans filter evaluation across goroutines using
+`errgroup`, collects results in original order, and merges them. Worker count is
+bounded by `min(Parallelism(), len(chunks))`.
+
+`GroupReduceParallel` uses a two-phase approach: parallel local aggregation over
+disjoint chunk slices, then a sequential merge of the partial results.
+
+`OpMetrics` / `LastMetrics()` records the operator name, worker count, rows processed,
+and elapsed time for the most recent parallel operation.
+
+## ADBC Connectivity
+
+`internal/ingest.ADBC(ctx, db, cfg)` is the ADBC adapter. It accepts any value
+implementing `adbc.Database`, opens a connection, executes the SQL query, and returns
+an `array.RecordReader` — the same type returned by the CSV and Parquet adapters.
+
+```
+adbc.Database.Open → adbc.Connection
+adbc.Connection.NewStatement → adbc.Statement
+adbc.Statement.SetSqlQuery / ExecuteQuery → array.RecordReader
+```
+
+The `adbcReader` wrapper adds context cancellation (checked between batches) and
+teardown (statement then connection released on `Release()`). ADBC schemas are Arrow
+schemas — no mapping needed; null bitmaps pass through unchanged.
+
+See [`examples/adbc/main.go`](../examples/adbc/main.go) for a complete end-to-end example.
+
+## Gonum Integration
+
+`cosma/gonum` exports numeric DataFrame columns and Series to Gonum matrix and vector
+types. Null handling is explicit — callers choose `NullError`, `NullDrop`, or `NullFill`;
+there is no default silent behavior.
+
+`ToMatrix` extracts numeric columns in schema order (or a caller-specified order) and
+builds a row-major `*mat.Dense`. `ToVector` extracts a single numeric Series as a
+`*mat.VecDense`. Both return an explicit error rather than calling `NewDense(0, c, nil)`
+or `NewVecDense(0, nil)`, which panic with `ErrZeroLength` in Gonum v0.17.0.
+
+For the public package surface, see [docs/packages.md](packages.md).

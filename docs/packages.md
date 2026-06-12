@@ -16,14 +16,12 @@
 
 ## Public API Expectations
 
-Cosma exposes a small set of public packages intended for end users. These
-packages are evolving and may change as the execution engine and expression
-system mature. The public API is centered on `dataframe` and `scan`, with
-`plan` providing an experimental planning surface and `compute` focused on
-numerical export and transformations. The `expr` package exposes the public
-expression AST (node types, op constants, and fluent builders) used by
-`dataframe.Filter`, `WithColumn`, `GroupBy().Agg`, and `Sort`; per ADR 0004 the
-node types are a stable, inspectable, serializable contract.
+Cosma exposes a small set of public packages intended for end users. The primary
+entry point is `dataframe`; `expr` provides the public expression AST used by
+`Filter`, `WithColumn`, `GroupBy().Agg`, and `Sort`; `scan` provides streaming
+readers and lazy scan sources; `gonum` exports DataFrames to Gonum matrices and
+vectors. Per ADR 0004, the `expr` node types are a stable, inspectable, serializable
+contract — safe for custom optimizer passes and plan serialization.
 
 ## Internal Packages
 
