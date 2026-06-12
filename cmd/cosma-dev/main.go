@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/array"
 
 	"github.com/karthedew/cosma/dataframe"
 	"github.com/karthedew/cosma/expr"

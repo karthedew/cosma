@@ -17,7 +17,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/stretchr/testify/require"
 
 	"github.com/karthedew/cosma/dataframe"

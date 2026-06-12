@@ -3,7 +3,7 @@ package dataframe
 import (
 	"fmt"
 
-	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow"
 )
 
 // Concat stacks DataFrames vertically (row-wise). Every input must share the

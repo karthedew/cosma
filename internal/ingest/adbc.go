@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 )
 
 // ADBCConfig holds connection and query parameters for a database source.
@@ -101,8 +101,9 @@ func (r *adbcReader) Release() {
 	}
 }
 
-func (r *adbcReader) Schema() *arrow.Schema { return r.reader.Schema() }
-func (r *adbcReader) Record() arrow.Record  { return r.reader.Record() }
+func (r *adbcReader) Schema() *arrow.Schema        { return r.reader.Schema() }
+func (r *adbcReader) RecordBatch() arrow.RecordBatch { return r.reader.RecordBatch() }
+func (r *adbcReader) Record() arrow.Record           { return r.reader.RecordBatch() }
 
 func (r *adbcReader) Next() bool {
 	if r.err != nil {

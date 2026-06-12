@@ -3,7 +3,7 @@ package schema
 import (
 	"fmt"
 
-	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow"
 )
 
 // FromArrow builds a Cosma Schema from an Arrow schema, carrying each field's

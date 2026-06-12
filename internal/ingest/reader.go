@@ -5,8 +5,8 @@ import (
 	"io"
 	"sync/atomic"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // readerWithClose wraps a RecordReader so that the underlying source (file
@@ -42,9 +42,10 @@ func (r *readerWithClose) Release() {
 	}
 }
 
-func (r *readerWithClose) Schema() *arrow.Schema { return r.reader.Schema() }
-func (r *readerWithClose) Record() arrow.Record  { return r.reader.Record() }
-func (r *readerWithClose) Next() bool            { return r.reader.Next() }
+func (r *readerWithClose) Schema() *arrow.Schema        { return r.reader.Schema() }
+func (r *readerWithClose) RecordBatch() arrow.RecordBatch { return r.reader.RecordBatch() }
+func (r *readerWithClose) Record() arrow.Record           { return r.reader.RecordBatch() }
+func (r *readerWithClose) Next() bool                     { return r.reader.Next() }
 
 // Err normalizes clean end-of-stream to nil. Sources differ (the Parquet record
 // reader reports io.EOF when exhausted, the CSV reader reports nil), so the seam

@@ -3,8 +3,8 @@ package stream
 import (
 	"sync/atomic"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 
 	"github.com/karthedew/cosma/dataframe"
 )
@@ -43,9 +43,10 @@ func (r *DataFrameRecordReader) Release() {
 	}
 }
 
-func (r *DataFrameRecordReader) Schema() *arrow.Schema { return r.schema }
-func (r *DataFrameRecordReader) Record() arrow.Record  { return r.cur }
-func (r *DataFrameRecordReader) Err() error            { return r.err }
+func (r *DataFrameRecordReader) Schema() *arrow.Schema        { return r.schema }
+func (r *DataFrameRecordReader) RecordBatch() arrow.RecordBatch { return r.cur }
+func (r *DataFrameRecordReader) Record() arrow.Record           { return r.cur }
+func (r *DataFrameRecordReader) Err() error                     { return r.err }
 
 func (r *DataFrameRecordReader) Next() bool {
 	if r.err != nil || r.iter == nil {

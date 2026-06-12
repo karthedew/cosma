@@ -3,7 +3,7 @@ package expr
 import (
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow"
 )
 
 // Expr is the public, transparent wrapper around an expression tree node. The

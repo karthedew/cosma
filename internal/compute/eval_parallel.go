@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/memory"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 
 	"github.com/karthedew/cosma/expr"
 )

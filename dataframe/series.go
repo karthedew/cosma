@@ -1,7 +1,7 @@
 package dataframe
 
 import (
-	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow"
 )
 
 // Series is the core column type in Cosma.

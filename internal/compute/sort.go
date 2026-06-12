@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // SortKey names a column-sort spec resolved against a chunked column: the column

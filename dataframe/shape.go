@@ -1,8 +1,8 @@
 package dataframe
 
 import (
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // Head returns a new DataFrame containing the first n rows across all chunks.

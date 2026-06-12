@@ -3,7 +3,7 @@ package expr
 import (
 	"time"
 
-	"github.com/apache/arrow/go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow"
 )
 
 // LitTimestamp returns an Expr wrapping a LiteralNode of type

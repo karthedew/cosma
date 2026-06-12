@@ -3,8 +3,8 @@ package scan
 import (
 	"context"
 
-	"github.com/apache/arrow/go/v18/arrow"
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/apache/arrow-go/v18/arrow/array"
 )
 
 // RecordReader is Cosma's public streaming contract: a forward-only iterator
