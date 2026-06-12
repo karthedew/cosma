@@ -110,7 +110,7 @@ func ToMatrix(df *dataframe.DataFrame, opts MatrixOptions) (*gonummat.Dense, err
 		}
 	}
 	if outRows == 0 {
-		return gonummat.NewDense(0, len(colNames), nil), nil
+		return nil, fmt.Errorf("gonum: ToMatrix produced an empty result: all rows were dropped by NullDrop policy")
 	}
 
 	// Fill matrix data in row-major order.
@@ -168,7 +168,7 @@ func ToVector(s *dataframe.Series, opts VectorOptions) (*gonummat.VecDense, erro
 	}
 
 	if n == 0 {
-		return gonummat.NewVecDense(0, nil), nil
+		return nil, fmt.Errorf("gonum: ToVector produced an empty result: series %q has no rows after applying null policy", s.Name())
 	}
 	return gonummat.NewVecDense(n, vals), nil
 }

@@ -127,6 +127,24 @@ func TestToVector_Nil(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestToVector_EmptySeries(t *testing.T) {
+	alloc := memory.NewGoAllocator()
+	b := array.NewInt64Builder(alloc)
+	defer b.Release()
+	chunked := arrow.NewChunked(arrow.PrimitiveTypes.Int64, []arrow.Array{b.NewArray()})
+	s := dataframe.NewSeriesFromChunked("empty", chunked)
+	_, err := cosmagonum.ToVector(s, cosmagonum.VectorOptions{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty result")
+}
+
+func TestToVector_NullDropAll(t *testing.T) {
+	s := intSeries(t, "x", []int64{0, 0, 0}, 0, 1, 2)
+	_, err := cosmagonum.ToVector(s, cosmagonum.VectorOptions{NullPolicy: cosmagonum.NullDrop})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "empty result")
+}
+
 // ToMatrix tests
 
 func TestToMatrix_BasicShape(t *testing.T) {

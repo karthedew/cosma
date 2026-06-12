@@ -15,6 +15,10 @@ func NewSeriesFromColumn(name string, col Column) *Series {
 	return &Series{name: name, col: col}
 }
 
+// NewSeriesFromChunked creates a Series backed by chunked. The caller transfers
+// ownership: do not call chunked.Release() after this call. The Series holds
+// the only live reference. Column has no Release method, so adding Retain here
+// without a corresponding Release path would permanently leak the array.
 func NewSeriesFromChunked(name string, chunked *arrow.Chunked) *Series {
 	return &Series{name: name, col: NewChunkedColumn(chunked)}
 }
