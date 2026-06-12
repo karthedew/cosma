@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -37,7 +38,7 @@ func TestScanParquetBatches(t *testing.T) {
 		t.Fatalf("WriteParquet: %v", err)
 	}
 
-	reader, err := ScanParquet(path, WithParquetBatchSize(2))
+	reader, err := ScanParquet(context.Background(), path, WithParquetBatchSize(2))
 	if err != nil {
 		t.Fatalf("ScanParquet: %v", err)
 	}

@@ -59,9 +59,9 @@ type PhysScan struct {
 	schema *arrow.Schema
 }
 
-func (n *PhysScan) Name() string              { return "PhysScan" }
-func (n *PhysScan) Schema() *arrow.Schema     { return n.schema }
-func (n *PhysScan) Children() []PhysicalNode  { return nil }
+func (n *PhysScan) Name() string             { return "PhysScan" }
+func (n *PhysScan) Schema() *arrow.Schema    { return n.schema }
+func (n *PhysScan) Children() []PhysicalNode { return nil }
 func (n *PhysScan) Execute(ctx context.Context, exec Executor) (any, error) {
 	return exec.Scan(ctx, n.Node)
 }

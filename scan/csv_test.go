@@ -1,6 +1,7 @@
 package scan
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestScanCSVBatches(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reader, err := ScanCSV(f.Name(), WithCSVChunkSize(2))
+	reader, err := ScanCSV(context.Background(), f.Name(), WithCSVChunkSize(2))
 	if err != nil {
 		t.Fatalf("ScanCSV: %v", err)
 	}

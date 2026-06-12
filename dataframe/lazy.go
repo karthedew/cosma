@@ -6,6 +6,7 @@ import (
 
 	"github.com/karthedew/cosma/expr"
 	"github.com/karthedew/cosma/plan"
+	"github.com/karthedew/cosma/schema"
 )
 
 type LazyFrame struct {
@@ -19,6 +20,30 @@ func (df *DataFrame) Lazy() *LazyFrame {
 	}
 	root := plan.NewScanNode(df.schema, plan.ScanSourceDataFrame)
 	root.Handle = df
+	return &LazyFrame{root: root}
+}
+
+// NewLazyFileScan builds a LazyFrame whose source is a file-backed scan. The
+// physical plan opens the file as a streaming RecordReader under CollectStream
+// (no full materialization) and as an eager scan under Collect. It is the
+// dataframe-side constructor behind scan.LazyScanCSV / scan.LazyScanParquet,
+// which cannot build it directly because plan/schema wiring and the FileScan
+// handle live here. The file's schema is read up front so the lazy plan can be
+// bound; the data is not drained.
+func NewLazyFileScan(fs FileScan) *LazyFrame {
+	if fs.Path == "" {
+		return &LazyFrame{err: fmt.Errorf("lazy file scan: path is empty")}
+	}
+	arrSchema, err := FileSchema(fs)
+	if err != nil {
+		return &LazyFrame{err: fmt.Errorf("lazy file scan: read schema: %w", err)}
+	}
+	s, err := schema.FromArrow(arrSchema)
+	if err != nil {
+		return &LazyFrame{err: fmt.Errorf("lazy file scan: schema: %w", err)}
+	}
+	root := plan.NewScanNode(s, plan.ScanSourceFile)
+	root.Handle = fs
 	return &LazyFrame{root: root}
 }
 
@@ -150,6 +175,43 @@ func (lf *LazyFrame) Collect(ctx context.Context) (*DataFrame, error) {
 		return nil, fmt.Errorf("collect: executor returned %T, want *DataFrame", out)
 	}
 	return df, nil
+}
+
+// CollectStream executes the lazy plan in streaming mode: bind, optimize, lower,
+// then run the physical plan batch-by-batch, returning a RecordReader instead of
+// a materialized DataFrame. Streamable operators (file scan, Filter, Project,
+// Limit) transform one batch at a time, so a filter/limit pipeline over a file
+// scan never loads the whole file. Pipeline-breaking operators (Sort, GroupBy,
+// Join, WithColumn) materialize their input into a DataFrame first and then
+// stream the result downstream. The returned reader is also a scan.RecordReader
+// (identical method set), so file scans and streamed plans are interchangeable.
+// The caller owns the reader and must Release it.
+func (lf *LazyFrame) CollectStream(ctx context.Context) (RecordReader, error) {
+	logical, err := lf.Plan()
+	if err != nil {
+		return nil, err
+	}
+	bound, err := plan.Bind(logical)
+	if err != nil {
+		return nil, err
+	}
+	optimized, err := plan.Optimize(bound)
+	if err != nil {
+		return nil, err
+	}
+	physical, err := plan.Lower(optimized)
+	if err != nil {
+		return nil, err
+	}
+	out, err := physical.ExecuteStream(ctx, DataFrameExecutor{})
+	if err != nil {
+		return nil, err
+	}
+	reader, ok := out.(RecordReader)
+	if !ok {
+		return nil, fmt.Errorf("collect stream: executor returned %T, want RecordReader", out)
+	}
+	return reader, nil
 }
 
 func (lf *LazyFrame) Plan() (*plan.LogicalPlan, error) {

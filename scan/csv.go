@@ -1,19 +1,25 @@
 package scan
 
 import (
-	"github.com/apache/arrow/go/v18/arrow/array"
+	"context"
 
 	"github.com/karthedew/cosma/internal/ingest"
 )
 
 // ScanCSV opens a CSV file and returns a streaming RecordReader over its
-// batches. It is a thin adapter over the shared ingestion seam.
-func ScanCSV(path string, opts ...CSVOption) (array.RecordReader, error) {
+// batches. It is a thin adapter over the shared ingestion seam. The returned
+// reader honors ctx cancellation between batches and owns the file handle,
+// closing it on Release.
+func ScanCSV(ctx context.Context, path string, opts ...CSVOption) (RecordReader, error) {
 	cfg := DefaultCSVOptions()
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&cfg)
 		}
 	}
-	return ingest.CSV(path, cfg.toIngest())
+	reader, err := ingest.CSV(path, cfg.toIngest())
+	if err != nil {
+		return nil, err
+	}
+	return WithContext(ctx, reader), nil
 }
