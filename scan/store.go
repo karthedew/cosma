@@ -78,9 +78,9 @@ func LazyScanStoreManifest(t *store.Tree) *dataframe.LazyFrame {
 		AllowNullable: true,
 		Open: func(_ context.Context, _ dataframe.ScanHints) (array.RecordReader, error) {
 			// Hints are advisory and ignored: the catalog is a small, fully
-			// in-memory metadata table. Retain so the reader owns its batch
-			// independently of this closure's reference.
-			rec.Retain()
+			// in-memory metadata table. NewRecordReader retains the batch, so
+			// each returned reader owns its own reference independently of
+			// this closure's.
 			return array.NewRecordReader(manifestSchema, []arrow.Record{rec})
 		},
 	})
