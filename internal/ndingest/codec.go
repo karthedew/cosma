@@ -21,6 +21,8 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
+
+	"github.com/karthedew/cosma/internal/ndingest/blosc"
 )
 
 // DecodeFunc decompresses one chunk payload. src is the bytes-to-bytes codec
@@ -68,6 +70,10 @@ func init() {
 	// driver normalizes its endian into store.Array.Endianness, so at the
 	// bytes-to-bytes pipeline level it is a no-op pass-through.
 	Register("bytes", decodeBytesNoop)
+	// Blosc (the Zarr v2 default compressor) lives in a subpackage so its ~600
+	// lines of frame/shuffle/blosclz code stay isolated; it never imports this
+	// package, so registering its adapter here keeps the edge one-directional.
+	Register("blosc", blosc.DecodeFunc)
 }
 
 func decodeBytesNoop(src []byte, _ map[string]any) ([]byte, error) {

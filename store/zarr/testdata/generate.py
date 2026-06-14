@@ -279,6 +279,12 @@ def v3_missing_and_fill():
 CODEC_I8 = np.array([-3, -1, 0, 1, 2, 7, 100, 200], dtype="<i8")
 CODEC_F8 = np.array([1.5, -2.5, 3.25, 0.0, 4.5, -6.75, 7.0, 8.125], dtype="<f8")
 
+# A larger, deterministic, compressible int64 array for the Z8 blosc fixtures.
+# The Go test reconstructs the same pattern: value i is (i % 17) - 4, which has
+# only 17 distinct values so it compresses well (non-memcpy frames) yet is not a
+# constant run, so the inner codec and shuffle both do real work.
+BLOSC_BIG_I8 = np.array([(i % 17) - 4 for i in range(1024)], dtype="<i8")
+
 
 def v2_codecs():
     """v2 store: the same small int64/float64 arrays compressed with gzip, zstd,
@@ -360,6 +366,73 @@ def v2_order():
     return root
 
 
+def v2_blosc():
+    """v2 store: the same small int64/float64 arrays compressed with numcodecs
+    Blosc across the (cname, shuffle) combinations a real store emits. Two chunks
+    each so the block loop runs on more than one block per chunk path.
+
+    Z8 decode tests round-trip every array back to CODEC_I8/CODEC_F8. The most
+    important combo is blosclz + byte-shuffle: that is the Zarr v2 default that
+    real-world stores use. We also cover lz4 + shuffle, zstd + shuffle, lz4
+    without shuffle, and one bitshuffle case. Array names encode the combo as
+    "{cname}_{shuffle}_{dtype}", e.g. blosclz_shuffle_i8.
+
+    Provenance: zarr==3.0.8, numcodecs==0.16.5. Frames are blosc1 (c-blosc
+    version 1 container) — the format this decoder targets.
+    """
+    import numcodecs
+    from numcodecs import Blosc
+
+    root = fresh("v2_blosc")
+    g = zarr.open_group(root, mode="w", zarr_format=2)
+    g.attrs["title"] = "v2 blosc fixtures"
+
+    # (label, cname, shuffle-flag)
+    combos = [
+        ("blosclz_shuffle", "blosclz", Blosc.SHUFFLE),     # zarr v2 default
+        ("lz4_shuffle", "lz4", Blosc.SHUFFLE),
+        ("zstd_shuffle", "zstd", Blosc.SHUFFLE),
+        ("lz4_noshuffle", "lz4", Blosc.NOSHUFFLE),
+        ("blosclz_bitshuffle", "blosclz", Blosc.BITSHUFFLE),
+        ("zlib_shuffle", "zlib", Blosc.SHUFFLE),
+    ]
+    for label, cname, shuffle in combos:
+        comp = Blosc(cname=cname, clevel=5, shuffle=shuffle)
+        ai = g.create_array(
+            f"{label}_i8", shape=(8,), chunks=(4,), dtype="<i8", compressors=comp,
+        )
+        ai[:] = CODEC_I8
+        ai.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+        af = g.create_array(
+            f"{label}_f8", shape=(8,), chunks=(4,), dtype="<f8", compressors=comp,
+        )
+        af[:] = CODEC_F8
+        af.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+
+        # A larger, compressible companion array per combo. The tiny arrays above
+        # are stored MEMCPYED (incompressible), so they never exercise the
+        # inner-codec block path or the shuffle inversion. BIG_I8 is highly
+        # repetitive, forcing real compression (non-memcpy frames with byte/bit
+        # shuffle applied) across multiple blocks/chunks.
+        big = g.create_array(
+            f"{label}_big_i8", shape=(1024,), chunks=(512,), dtype="<i8",
+            compressors=comp,
+        )
+        big[:] = BLOSC_BIG_I8
+        big.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+
+    # One multi-block-per-chunk fixture: a forced small blocksize (256 bytes)
+    # splits each 512-element (4096-byte) chunk into many blosc blocks, exercising
+    # the per-block offset table and block loop. Uses the v2 default codec.
+    mb = Blosc(cname="blosclz", clevel=5, shuffle=Blosc.SHUFFLE, blocksize=256)
+    mblock = g.create_array(
+        "multiblock_i8", shape=(1024,), chunks=(512,), dtype="<i8", compressors=mb,
+    )
+    mblock[:] = BLOSC_BIG_I8
+    mblock.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+    return root
+
+
 def main():
     v2_nested(".")
     v2_nested("/")
@@ -378,6 +451,8 @@ def main():
     v2_codecs()
     v3_codecs()
     v2_order()
+    # Z8 blosc fixtures.
+    v2_blosc()
     print("fixtures written under", HERE)
 
 
