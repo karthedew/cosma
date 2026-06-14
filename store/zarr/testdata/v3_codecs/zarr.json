@@ -1,0 +1,8 @@
+{
+  "attributes": {
+    "title": "v3 codec fixtures"
+  },
+  "zarr_format": 3,
+  "consolidated_metadata": null,
+  "node_type": "group"
+}
