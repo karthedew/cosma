@@ -12,9 +12,17 @@ Pinned toolchain (matches the committed output):
     /tmp/zarrvenv/bin/pip install "zarr==3.0.8" "numpy>=2"
     /tmp/zarrvenv/bin/python store/zarr/testdata/generate.py
 
-All array fixtures are written UNCOMPRESSED (v2 compressor=None / v3 no
+Most array fixtures are written UNCOMPRESSED (v2 compressor=None / v3 no
 compression codec) so that chunk bytes are trivially computable golden values
 for the Go ReadChunk tests (decode itself is Z5, out of this driver's scope).
+
+The COMPRESSED and F-order fixtures (v2_codecs, v3_codecs, v2_order) were added
+for the Z5 chunk-decode pipeline tests (internal/ndingest). They hold the same
+small int64/float64 arrays compressed with gzip/zstd/lz4 (v2: numcodecs
+GZip/Zstd/LZ4; v3: GzipCodec/ZstdCodec chains) and an F-order array with a
+byte-identical C-order twin. The Go decode tests check that these round-trip
+back to the known generator values. They do not change any pre-existing fixture
+store, so `git status` over the previously committed testdata stays clean.
 
 zarr-python 3.x writes both Zarr v2 (zarr_format=2) and v3 (zarr_format=3)
 on-disk layouts. For v3 it defaults to chunk_key_encoding "default" with a "/"
@@ -266,6 +274,92 @@ def v3_missing_and_fill():
     return root
 
 
+# The known golden values shared by every Z5 codec fixture. Kept tiny so the Go
+# tests can embed them literally.
+CODEC_I8 = np.array([-3, -1, 0, 1, 2, 7, 100, 200], dtype="<i8")
+CODEC_F8 = np.array([1.5, -2.5, 3.25, 0.0, 4.5, -6.75, 7.0, 8.125], dtype="<f8")
+
+
+def v2_codecs():
+    """v2 store: the same small int64/float64 arrays compressed with gzip, zstd,
+    and lz4 (numcodecs GZip/Zstd/LZ4). Two chunks each so the codec runs on more
+    than a single chunk. Z5 decode tests round-trip these to CODEC_I8/CODEC_F8."""
+    import numcodecs
+
+    root = fresh("v2_codecs")
+    g = zarr.open_group(root, mode="w", zarr_format=2)
+    g.attrs["title"] = "v2 codec fixtures"
+    codecs = {
+        "gzip": numcodecs.GZip(level=5),
+        "zstd": numcodecs.Zstd(level=3),
+        "lz4": numcodecs.LZ4(acceleration=1),
+    }
+    for cname, comp in codecs.items():
+        ai = g.create_array(
+            f"{cname}_i8", shape=(8,), chunks=(4,), dtype="<i8", compressors=comp,
+        )
+        ai[:] = CODEC_I8
+        ai.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+        af = g.create_array(
+            f"{cname}_f8", shape=(8,), chunks=(4,), dtype="<f8", compressors=comp,
+        )
+        af[:] = CODEC_F8
+        af.attrs["_ARRAY_DIMENSIONS"] = ["i"]
+    return root
+
+
+def v3_codecs():
+    """v3 store: int64/float64 arrays with gzip and zstd codec chains
+    (bytes -> {gzip|zstd}). Z5 decode tests round-trip these."""
+    from zarr.codecs import GzipCodec, ZstdCodec
+
+    root = fresh("v3_codecs")
+    g = zarr.open_group(root, mode="w", zarr_format=3)
+    g.attrs["title"] = "v3 codec fixtures"
+    codecs = {
+        "gzip": [GzipCodec(level=5)],
+        "zstd": [ZstdCodec(level=3)],
+    }
+    for cname, comp in codecs.items():
+        ai = g.create_array(
+            f"{cname}_i8", shape=(8,), chunks=(4,), dtype="int64",
+            compressors=comp, dimension_names=["i"],
+        )
+        ai[:] = CODEC_I8
+        af = g.create_array(
+            f"{cname}_f8", shape=(8,), chunks=(4,), dtype="float64",
+            compressors=comp, dimension_names=["i"],
+        )
+        af[:] = CODEC_F8
+    return root
+
+
+def v2_order():
+    """v2 store: an F-order (column-major) array and its C-order (row-major) twin
+    holding identical values, each in a single chunk. Z5 transposes the F-order
+    chunk to C-order at decode time and the test asserts the two match
+    cell-for-cell. Uncompressed so the transpose is the only variable."""
+    root = fresh("v2_order")
+    g = zarr.open_group(root, mode="w", zarr_format=2)
+    g.attrs["title"] = "v2 order fixtures"
+    vals = np.arange(24, dtype="<i8").reshape(4, 6)
+
+    f = g.create_array(
+        "f_order", shape=(4, 6), chunks=(4, 6), dtype="<i8",
+        compressors=None, order="F",
+    )
+    f[:] = vals
+    f.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+
+    c = g.create_array(
+        "c_order", shape=(4, 6), chunks=(4, 6), dtype="<i8",
+        compressors=None, order="C",
+    )
+    c[:] = vals
+    c.attrs["_ARRAY_DIMENSIONS"] = ["y", "x"]
+    return root
+
+
 def main():
     v2_nested(".")
     v2_nested("/")
@@ -280,6 +374,10 @@ def main():
     v3_key_encodings()
     v3_scalar()
     v3_missing_and_fill()
+    # Z5 chunk-decode fixtures (compressed + F-order).
+    v2_codecs()
+    v3_codecs()
+    v2_order()
     print("fixtures written under", HERE)
 
 
