@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/karthedew/cosma/expr"
+	"github.com/karthedew/cosma/schema"
 )
 
 // Optimize runs the logical optimizer passes and returns a new logical plan.
@@ -61,15 +62,98 @@ func pushFilters(node LogicalNode) {
 	})
 }
 
-// pushColumns records the narrowest ProjectNode column set above each scan.
+// pushColumns records, on each scan, the source columns the operators above it
+// actually use, so a streaming scan can emit only those.
+//
+// The pushed set is the UNION of a Project's columns and every column referenced
+// by the operators between the Project and the scan (Filter predicates, Sort
+// keys, WithColumn expression inputs, nested Project columns), intersected with
+// the scan's own output schema. Both parts matter:
+//
+//   - Union, not just the Project's columns: a Filter/Sort/WithColumn between the
+//     Project and the scan needs columns the final projection drops. Pushing only
+//     the Project's columns prunes those at the scan and breaks the operator under
+//     streaming execution (where ScanStream applies PushedColumns at the source).
+//     Adding columns is always safe — the scan emits a superset, never a subset.
+//   - Intersect with the scan schema: a name that is not a real source column
+//     (e.g. one WithColumn derives) must never be requested from the scan, or its
+//     column projection fails at runtime. Intersection drops those; the deriving
+//     operator reconstructs them above the scan.
 func pushColumns(node LogicalNode) {
 	walk(node, func(n LogicalNode) {
-		if p, ok := n.(*ProjectNode); ok {
-			if s := scanBelow(p); s != nil && s.PushedColumns == nil {
-				s.PushedColumns = append([]string(nil), p.Columns...)
-			}
+		p, ok := n.(*ProjectNode)
+		if !ok {
+			return
 		}
+		s := scanBelow(p)
+		if s == nil || s.PushedColumns != nil {
+			return
+		}
+		need := map[string]bool{}
+		collectUsedColumns(p, need)
+		s.PushedColumns = intersectSchemaColumns(s.schema, need)
 	})
+}
+
+// collectUsedColumns adds to need every source column referenced by the
+// single-input chain from node down to the scan: Project columns, Filter
+// predicate columns, Sort key columns, and WithColumn expression inputs. It
+// follows the same chain scanBelow walks and stops at the scan (or any node that
+// breaks the chain).
+func collectUsedColumns(node LogicalNode, need map[string]bool) {
+	for node != nil {
+		switch n := node.(type) {
+		case *ProjectNode:
+			for _, c := range n.Columns {
+				need[c] = true
+			}
+			node = n.Input
+		case *FilterNode:
+			addExprColumns(n.Predicate, need)
+			node = n.Input
+		case *SortNode:
+			for _, k := range n.Keys {
+				need[k.Column] = true
+			}
+			node = n.Input
+		case *WithColumnNode:
+			addExprColumns(n.Expr, need)
+			node = n.Input
+		case *LimitNode:
+			node = n.Input
+		default: // ScanNode, or a chain-breaking node (Aggregate, Join).
+			return
+		}
+	}
+}
+
+// addExprColumns adds every column an expression references to need.
+func addExprColumns(e expr.Expr, need map[string]bool) {
+	if e.Node == nil {
+		return
+	}
+	_ = expr.Walk(e.Node, func(n expr.ExprNode) error {
+		if c, ok := n.(expr.ColumnNode); ok {
+			need[c.Name] = true
+		}
+		return nil
+	})
+}
+
+// intersectSchemaColumns returns the columns of s that appear in need, in schema
+// order (deterministic). It returns nil when the schema is unknown or no column
+// matches, so column pushdown is simply skipped rather than guessed.
+func intersectSchemaColumns(s *schema.Schema, need map[string]bool) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, f := range s.Fields() {
+		if need[f.Name] {
+			out = append(out, f.Name)
+		}
+	}
+	return out
 }
 
 // limitScanBelow walks the chain below a limit and returns the ScanNode at its
