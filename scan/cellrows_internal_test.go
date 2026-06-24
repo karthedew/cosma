@@ -149,7 +149,8 @@ func record1(mem memory.Allocator, cr cellRows) arrow.Record {
 		{Name: "i", Type: arrow.PrimitiveTypes.Int64},
 		{Name: "value", Type: cr.valueType},
 	}, nil)
-	return cr.record(mem, sc, []int{0}, 0, cr.len())
+	rec, _ := cr.record(mem, sc, []int{0}, 0, cr.len(), nil)
+	return rec
 }
 
 // TestCellRowsRecordSlice confirms record() honors the start/count window so a
@@ -164,7 +165,8 @@ func TestCellRowsRecordSlice(t *testing.T) {
 		{Name: "value", Type: arrow.PrimitiveTypes.Int64},
 	}, nil)
 
-	rec := cr.record(mem, sc, []int{0}, 2, 2)
+	rec, err := cr.record(mem, sc, []int{0}, 2, 2, nil)
+	require.NoError(t, err)
 	defer rec.Release()
 	require.Equal(t, int64(2), rec.NumRows())
 	idx := rec.Column(0).(*array.Int64)
@@ -183,7 +185,8 @@ func TestCellRowsValueOnlyLen(t *testing.T) {
 
 	mem := memory.NewGoAllocator()
 	sc := arrow.NewSchema([]arrow.Field{{Name: "value", Type: arrow.PrimitiveTypes.Float64}}, nil)
-	rec := cr.record(mem, sc, nil, 0, 1)
+	rec, err := cr.record(mem, sc, nil, 0, 1, nil)
+	require.NoError(t, err)
 	defer rec.Release()
 	require.Equal(t, int64(1), rec.NumRows())
 	assert.Equal(t, 42.5, rec.Column(0).(*array.Float64).Value(0))

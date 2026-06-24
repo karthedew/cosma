@@ -40,12 +40,20 @@ type pushdownResult struct {
 // order (one per non-Index axis), axisOfCol[i] is the array-axis index that
 // kept-column i corresponds to, and shape is the full array shape. base must
 // already be valid against shape.
+//
+// coordDims names the columns whose values are coordinate VALUES, not axis
+// indices (WithCoords). A range predicate on such a column must NOT tighten the
+// selection — its literal is a coordinate, not an index, so index-range
+// translation would silently mis-prune. The surviving Filter above the scan
+// keeps those predicates exact. Projection still applies to coord columns (they
+// are addressable by name like any other), so only filter tightening skips them.
 func applyPushdown(
 	hints dataframeScanHints,
 	base carray.Selection,
 	cols []string,
 	axisOfCol []int,
 	shape []int64,
+	coordDims map[string]bool,
 ) pushdownResult {
 	res := pushdownResult{
 		sel:        cloneSelection(base, shape),
@@ -80,6 +88,9 @@ func applyPushdown(
 		axis, isKept := colAxis[name]
 		if !isKept {
 			continue // value column, dropped Index axis, or unknown name.
+		}
+		if coordDims[name] {
+			continue // coord-valued column: literal is a coordinate, not an index.
 		}
 		res.sel.Axes[axis] = intersectAxisRange(res.sel.Axes[axis], shape[axis], lo, hi)
 	}

@@ -24,13 +24,14 @@ import (
 const defaultBatchCells int64 = 65536
 
 // ArrayScan describes a lazy cell-table scan of one store array. The output is a
-// flat table: one int64 index column per KEPT dimension, plus a final "value"
-// column in the array's dtype. An axis selected by a single Index is dropped
-// from the output (its position is fixed, so it carries no information per row).
+// flat table: one index column per KEPT dimension, plus a final "value" column
+// in the array's dtype. An axis selected by a single Index is dropped from the
+// output (its position is fixed, so it carries no information per row). By
+// default an index column holds the int64 cell index; a dim listed in CoordPaths
+// instead holds its coordinate's VALUES (WithCoords).
 //
-// WithCoords (emitting coordinate-variable values instead of integer indices)
-// and WithMissingAsNull (mapping missing chunks to null rather than fill value)
-// are post-MVP and intentionally absent.
+// WithMissingAsNull (mapping missing chunks to null rather than fill value) is
+// post-MVP and intentionally absent.
 type ArrayScan struct {
 	// Tree is the open store hierarchy the array lives in.
 	Tree *store.Tree
@@ -48,6 +49,14 @@ type ArrayScan struct {
 	// default (min(defaultBatchCells, chunk cell count)). A batch never spans
 	// chunks regardless of this value.
 	BatchCells int64
+	// CoordPaths maps a dimension name to the absolute store path of its 1-D
+	// coordinate array (WithCoords). For each kept dim present here, the output
+	// column holds the coordinate's VALUES (in the coordinate's dtype) instead of
+	// the integer index; dims absent here keep their int64 index column. The
+	// coordinate array must be 1-D with extent equal to the dim it labels.
+	// scan.Var(v, name, scan.WithCoords()) populates this from a dataset.View;
+	// it may also be set by hand.
+	CoordPaths map[string]string
 }
 
 // LazyScanArray returns a LazyFrame that scans one store array as a cell table.
@@ -66,12 +75,18 @@ type ArrayScan struct {
 // you need a deterministic order — that is the caller's choice, not paid for by
 // every scan.
 //
+// A kept dim listed in ArrayScan.CoordPaths emits its coordinate's values (in
+// the coordinate's dtype) instead of the int64 index — the schema column type
+// reflects this. Coordinate values are loaded lazily per data chunk and each
+// coordinate chunk is decoded at most once (cached for the scan).
+//
 // Behind the SourceScan, advisory ScanHints are honored to PRUNE work only:
 // range predicates on kept index columns tighten the carray.Selection (fewer
 // chunks read), a column projection drops unreferenced index columns from the
 // output (never changing which cells are read), and a limit stops the chunk
-// iterator early. The Filter/Project/Limit nodes above the scan keep results
-// exact regardless of what was honored.
+// iterator early. Predicates on a coord-valued column are NOT pushed (their
+// literals are coordinate values, not indices). The Filter/Project/Limit nodes
+// above the scan keep results exact regardless of what was honored.
 //
 // Missing chunks (store.ErrChunkMissing) materialize the array's FillValue. If
 // FillValue is nil (undefined), the scan errors — a future WithMissingAsNull
@@ -120,6 +135,16 @@ type arrayPlan struct {
 	// single-Index axes), in axis order. keptNames[i] names keptAxes[i].
 	keptAxes  []int
 	keptNames []string
+
+	// Coordinate columns (WithCoords), one entry per kept axis. keptCoordPath[i]
+	// is the coord array's path for kept axis i, or "" when that dim has no
+	// coordinate (a plain int64 index column). keptCoordType[i] is the coord
+	// column's Arrow type when coord'd, else nil. coordDims is the set of
+	// coord-valued dim names, passed to applyPushdown so their predicates do not
+	// tighten the selection.
+	keptCoordPath []string
+	keptCoordType []arrow.DataType
+	coordDims     map[string]bool
 }
 
 // planArrayScan resolves the array and computes the static plan. It performs no
@@ -158,9 +183,46 @@ func planArrayScan(s ArrayScan) (*arrayPlan, error) {
 		keptNames = append(keptNames, names[axis])
 	}
 
+	// Resolve coordinate columns (WithCoords): for each kept dim named in
+	// CoordPaths, the column takes the coordinate array's dtype instead of int64.
+	keptCoordPath := make([]string, len(keptAxes))
+	keptCoordType := make([]arrow.DataType, len(keptAxes))
+	var coordDims map[string]bool
+	for i, name := range keptNames {
+		path, ok := s.CoordPaths[name]
+		if !ok {
+			continue
+		}
+		carr, ok := s.Tree.Array(path)
+		if !ok {
+			return nil, fmt.Errorf("scan: coordinate %q for dim %q: no array at %q", path, name, path)
+		}
+		if carr.Ndim() != 1 {
+			return nil, fmt.Errorf("scan: coordinate %q for dim %q must be 1-D, got rank %d", path, name, carr.Ndim())
+		}
+		if carr.Shape[0] != arr.Shape[keptAxes[i]] {
+			return nil, fmt.Errorf("scan: coordinate %q size %d != dim %q extent %d",
+				path, carr.Shape[0], name, arr.Shape[keptAxes[i]])
+		}
+		ct, err := arrowTypeForDType(carr.DType)
+		if err != nil {
+			return nil, fmt.Errorf("scan: coordinate %q for dim %q: %w", path, name, err)
+		}
+		keptCoordPath[i] = path
+		keptCoordType[i] = ct
+		if coordDims == nil {
+			coordDims = make(map[string]bool)
+		}
+		coordDims[name] = true
+	}
+
 	fields := make([]arrow.Field, 0, len(keptAxes)+1)
-	for _, name := range keptNames {
-		fields = append(fields, arrow.Field{Name: name, Type: arrow.PrimitiveTypes.Int64})
+	for i, name := range keptNames {
+		ct := keptCoordType[i]
+		if ct == nil {
+			ct = arrow.PrimitiveTypes.Int64
+		}
+		fields = append(fields, arrow.Field{Name: name, Type: ct})
 	}
 	fields = append(fields, arrow.Field{Name: "value", Type: valueType})
 	outSchema := arrow.NewSchema(fields, nil)
@@ -174,16 +236,19 @@ func planArrayScan(s ArrayScan) (*arrayPlan, error) {
 	}
 
 	return &arrayPlan{
-		tree:       s.Tree,
-		arr:        arr,
-		grid:       carray.ChunkGrid{Shape: arr.Shape, ChunkShape: arr.ChunkShape},
-		baseSel:    s.Selection,
-		outSchema:  outSchema,
-		valueType:  valueType,
-		width:      width,
-		batchCells: batch,
-		keptAxes:   keptAxes,
-		keptNames:  keptNames,
+		tree:          s.Tree,
+		arr:           arr,
+		grid:          carray.ChunkGrid{Shape: arr.Shape, ChunkShape: arr.ChunkShape},
+		baseSel:       s.Selection,
+		outSchema:     outSchema,
+		valueType:     valueType,
+		width:         width,
+		batchCells:    batch,
+		keptAxes:      keptAxes,
+		keptNames:     keptNames,
+		keptCoordPath: keptCoordPath,
+		keptCoordType: keptCoordType,
+		coordDims:     coordDims,
 	}, nil
 }
 
@@ -232,21 +297,32 @@ func (p *arrayPlan) open(ctx context.Context, hints dataframe.ScanHints, mem mem
 		p.keptNames,
 		p.keptAxes,
 		p.arr.Shape,
+		p.coordDims,
 	)
 
 	// The output schema after projection drops unreferenced kept index columns.
 	// outCols holds kept-column positions (indices into p.keptAxes / cellRows.idx)
-	// that survive projection, in output order.
+	// that survive projection, in output order. A coord-valued kept column carries
+	// the coordinate's dtype; otherwise an int64 index column.
 	outFields := make([]arrow.Field, 0, len(p.keptAxes)+1)
 	outCols := make([]int, 0, len(p.keptAxes))
 	for i := range p.keptAxes {
 		if pd.keepOutput[i] {
-			outFields = append(outFields, arrow.Field{Name: p.keptNames[i], Type: arrow.PrimitiveTypes.Int64})
+			ct := p.keptCoordType[i]
+			if ct == nil {
+				ct = arrow.PrimitiveTypes.Int64
+			}
+			outFields = append(outFields, arrow.Field{Name: p.keptNames[i], Type: ct})
 			outCols = append(outCols, i)
 		}
 	}
 	outFields = append(outFields, arrow.Field{Name: "value", Type: p.valueType})
 	outSchema := arrow.NewSchema(outFields, nil)
+
+	loader, err := newCoordLoader(p, mem)
+	if err != nil {
+		return nil, err
+	}
 
 	// Collect the touched chunk coordinates up front (cheap, metadata only) so
 	// the parallel workers can pull from a shared queue.
@@ -271,6 +347,7 @@ func (p *arrayPlan) open(ctx context.Context, hints dataframe.ScanHints, mem mem
 		outSchema: outSchema,
 		outCols:   outCols,
 		coords:    coords,
+		coordLoad: loader,
 		results:   make(chan chunkResult, max1(runtime.GOMAXPROCS(0))),
 	}
 	r.start()
@@ -304,6 +381,7 @@ type arrayReader struct {
 	limit     int64
 	outSchema *arrow.Schema
 	outCols   []int
+	coordLoad *coordLoader
 
 	coords  [][]int64
 	results chan chunkResult
@@ -432,6 +510,7 @@ func (r *arrayReader) Release() {
 			for range r.results {
 			}
 		}()
+		r.coordLoad.release()
 	})
 	if r.cur != nil {
 		r.cur.Release()
@@ -452,6 +531,9 @@ func (r *arrayReader) Next() bool {
 		if err := r.ctx.Err(); err != nil {
 			r.err = err
 			return false
+		}
+		if r.err != nil {
+			return false // e.g. a coord-load error surfaced by nextBatch.
 		}
 		if r.limit >= 0 && r.emitted >= r.limit {
 			r.finish()
@@ -519,7 +601,14 @@ func (r *arrayReader) nextBatch() arrow.Record {
 		return nil
 	}
 
-	rec := r.pending.record(r.mem, r.outSchema, r.outCols, int(start), int(count))
+	rec, err := r.pending.record(r.mem, r.outSchema, r.outCols, int(start), int(count), r.coordLoad)
+	if err != nil {
+		r.err = err
+		if r.cancel != nil {
+			r.cancel()
+		}
+		return nil
+	}
 	r.pendingOff += count
 	r.emitted += count
 	return rec
