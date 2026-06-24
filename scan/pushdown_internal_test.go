@@ -347,7 +347,7 @@ func TestApplyPushdownProjectionAndRange(t *testing.T) {
 			Filters: []expr.Expr{expr.Col("time").Lt(expr.Lit(int64(24)))},
 			Limit:   -1,
 		}
-		res := applyPushdown(hints, base, cols, axisOfCol, shape)
+		res := applyPushdown(hints, base, cols, axisOfCol, shape, nil)
 		require.Len(t, res.sel.Axes, 2)
 		require.NotNil(t, res.sel.Axes[0].Slice)
 		assert.Equal(t, carray.Slice{Start: 0, Stop: 24, Step: 1}, *res.sel.Axes[0].Slice)
@@ -360,7 +360,7 @@ func TestApplyPushdownProjectionAndRange(t *testing.T) {
 	t.Run("projection-drops-unreferenced-cols", func(t *testing.T) {
 		t.Parallel()
 		hints := dataframeScanHints{Columns: []string{"station"}, Limit: 7}
-		res := applyPushdown(hints, base, cols, axisOfCol, shape)
+		res := applyPushdown(hints, base, cols, axisOfCol, shape, nil)
 		assert.Equal(t, []bool{false, true}, res.keepOutput)
 		assert.Equal(t, int64(7), res.limit)
 	})
@@ -371,7 +371,7 @@ func TestApplyPushdownProjectionAndRange(t *testing.T) {
 			Filters: []expr.Expr{expr.Col("value").Gt(expr.Lit(int64(0)))},
 			Limit:   -1,
 		}
-		res := applyPushdown(hints, base, cols, axisOfCol, shape)
+		res := applyPushdown(hints, base, cols, axisOfCol, shape, nil)
 		// No axis tightened.
 		assert.Nil(t, res.sel.Axes[0].Slice)
 		assert.Nil(t, res.sel.Axes[1].Slice)
@@ -384,7 +384,7 @@ func TestApplyPushdownProjectionAndRange(t *testing.T) {
 			Filters: []expr.Expr{expr.Col("time").Lte(expr.Lit(int64(10)))},
 			Limit:   -1,
 		}
-		_ = applyPushdown(hints, base2, cols, axisOfCol, shape)
+		_ = applyPushdown(hints, base2, cols, axisOfCol, shape, nil)
 		// base2's axis 0 still the original All selector.
 		assert.Nil(t, base2.Axes[0].Slice)
 		assert.True(t, base2.Axes[0].All)

@@ -65,72 +65,71 @@ func (r *cellRows) appendFill(globalIdx []int64, fill []byte) {
 }
 
 // record builds an Arrow record of `count` rows starting at `start`. outCols are
-// kept-column positions (indices into r.idx / r.keptAxes) to emit as int64 index
-// columns, followed by the value column. sc must match: one int64 field per
-// outCols entry, then "value".
-func (r cellRows) record(mem memory.Allocator, sc *arrow.Schema, outCols []int, start, count int) arrow.Record {
+// kept-column positions (indices into r.idx / r.keptAxes) to emit, followed by
+// the value column. A coord-valued kept column (loader.isCoord) emits the
+// coordinate's values in the coord's dtype, looked up by the row's global index;
+// every other kept column emits the int64 index. sc must match the resulting
+// column types. loader may be nil when no column is coord-valued.
+func (r cellRows) record(mem memory.Allocator, sc *arrow.Schema, outCols []int, start, count int, loader *coordLoader) (arrow.Record, error) {
 	b := array.NewRecordBuilder(mem, sc)
 	defer b.Release()
 
 	for col, keptPos := range outCols {
+		if loader != nil && loader.isCoord(keptPos) {
+			fb := b.Field(col)
+			for i := 0; i < count; i++ {
+				if err := loader.appendValue(keptPos, fb, r.idx[keptPos][start+i]); err != nil {
+					return nil, err
+				}
+			}
+			continue
+		}
 		ib := b.Field(col).(*array.Int64Builder)
 		ib.AppendValues(r.idx[keptPos][start:start+count], nil)
 	}
 
 	r.appendValues(b.Field(len(outCols)), start, count)
-	return b.NewRecord()
+	return b.NewRecord(), nil
 }
 
 // appendValues decodes count value cells from the little-endian value bytes into
 // the typed builder, starting at row `start`.
 func (r cellRows) appendValues(fb array.Builder, start, count int) {
 	w := r.width
-	base := start * w
+	for i := 0; i < count; i++ {
+		appendDecodedValue(fb, r.vals, (start+i)*w)
+	}
+}
+
+// appendDecodedValue appends one little-endian value from src[off:] into the
+// typed builder; the builder type (what arrowTypeForDType produces for the
+// source dtype) determines how many bytes are read. It is the single decode
+// point shared by the value column (cellRows.appendValues) and coordinate
+// columns (coordDim.appendValue).
+func appendDecodedValue(fb array.Builder, src []byte, off int) {
 	switch vb := fb.(type) {
 	case *array.Int8Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(int8(r.vals[base+i*w]))
-		}
+		vb.Append(int8(src[off]))
 	case *array.Int16Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(int16(binary.LittleEndian.Uint16(r.vals[base+i*w:])))
-		}
+		vb.Append(int16(binary.LittleEndian.Uint16(src[off:])))
 	case *array.Int32Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(int32(binary.LittleEndian.Uint32(r.vals[base+i*w:])))
-		}
+		vb.Append(int32(binary.LittleEndian.Uint32(src[off:])))
 	case *array.Int64Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(int64(binary.LittleEndian.Uint64(r.vals[base+i*w:])))
-		}
+		vb.Append(int64(binary.LittleEndian.Uint64(src[off:])))
 	case *array.Uint8Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(r.vals[base+i*w])
-		}
+		vb.Append(src[off])
 	case *array.Uint16Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(binary.LittleEndian.Uint16(r.vals[base+i*w:]))
-		}
+		vb.Append(binary.LittleEndian.Uint16(src[off:]))
 	case *array.Uint32Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(binary.LittleEndian.Uint32(r.vals[base+i*w:]))
-		}
+		vb.Append(binary.LittleEndian.Uint32(src[off:]))
 	case *array.Uint64Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(binary.LittleEndian.Uint64(r.vals[base+i*w:]))
-		}
+		vb.Append(binary.LittleEndian.Uint64(src[off:]))
 	case *array.Float32Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(math.Float32frombits(binary.LittleEndian.Uint32(r.vals[base+i*w:])))
-		}
+		vb.Append(math.Float32frombits(binary.LittleEndian.Uint32(src[off:])))
 	case *array.Float64Builder:
-		for i := 0; i < count; i++ {
-			vb.Append(math.Float64frombits(binary.LittleEndian.Uint64(r.vals[base+i*w:])))
-		}
+		vb.Append(math.Float64frombits(binary.LittleEndian.Uint64(src[off:])))
 	case *array.BooleanBuilder:
-		for i := 0; i < count; i++ {
-			vb.Append(r.vals[base+i*w] != 0)
-		}
+		vb.Append(src[off] != 0)
 	default:
 		// Unreachable: arrowTypeForDType only produces the cases above.
 		panic("scan: unsupported value builder type")
